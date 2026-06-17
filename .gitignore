@@ -19,3 +19,9 @@ build/
 node_modules/
 .vite/
 web/dist/
+
+# Test coverage & runtime logs
+.coverage
+htmlcov/
+.pytest_cache/
+data/embedding-proxy.*.log
