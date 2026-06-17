@@ -1,0 +1,79 @@
+/* src/uni_rag/web/style.css */
+:root {
+  --ink: #1a1a1a;
+  --paper: #fafaf7;
+  --accent: #6b4f3a;
+  --border: #d4cfc5;
+  --soft: #ede9e0;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: Georgia, 'Songti SC', 'STSong', serif;
+  background: var(--paper);
+  color: var(--ink);
+  line-height: 1.7;
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+header { border-bottom: 1px solid var(--border); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+header h1 { font-size: 2.5rem; letter-spacing: -0.02em; }
+header p { color: var(--accent); font-style: italic; margin-top: 0.3rem; }
+
+section { margin-bottom: 2.5rem; }
+section h2 { font-size: 1.2rem; margin-bottom: 1rem; color: var(--accent); }
+
+#dropzone {
+  border: 2px dashed var(--border);
+  padding: 2rem;
+  text-align: center;
+  background: var(--soft);
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+#dropzone.dragging { background: #e0d8c8; }
+
+#file-list { list-style: none; margin-top: 1rem; }
+#file-list li { padding: 0.5rem 0; border-bottom: 1px dotted var(--border); }
+
+#chat {
+  border: 1px solid var(--border);
+  padding: 1rem;
+  min-height: 200px;
+  max-height: 500px;
+  overflow-y: auto;
+  background: white;
+  margin-bottom: 1rem;
+}
+
+.message { margin-bottom: 1rem; }
+.message.user .content { color: var(--ink); font-weight: 600; }
+.message.assistant .content { color: var(--ink); }
+.message .citations {
+  margin-top: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--accent);
+  font-style: italic;
+}
+
+#query-form { display: flex; gap: 0.5rem; }
+#question-input {
+  flex: 1;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border);
+  background: white;
+  font-family: inherit;
+  font-size: 1rem;
+}
+#query-form button {
+  padding: 0.6rem 1.5rem;
+  background: var(--accent);
+  color: white;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+#query-form button:hover { background: #4a3829; }

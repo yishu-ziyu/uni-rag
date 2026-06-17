@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>uni-rag · 学生 RAG 助手</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>uni-rag</h1>
+    <p>上传文档，问问题，得到带高亮引用的答案</p>
+  </header>
+
+  <main>
+    <section id="upload-section">
+      <h2>1. 上传文档</h2>
+      <div id="dropzone">
+        <p>拖拽 PDF / Markdown 到这里</p>
+        <p>或</p>
+        <input type="file" id="file-input" accept=".pdf,.md,.markdown,.docx" />
+      </div>
+      <ul id="file-list"></ul>
+    </section>
+
+    <section id="query-section">
+      <h2>2. 问问题</h2>
+      <div id="chat"></div>
+      <form id="query-form">
+        <input type="text" id="question-input" placeholder="例如：第三章讲了什么？" required />
+        <button type="submit">问</button>
+      </form>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
