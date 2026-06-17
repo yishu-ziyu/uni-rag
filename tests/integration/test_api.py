@@ -67,6 +67,19 @@ def test_ingest_job_reports_progress(client):
         raise AssertionError(f"ingest job did not complete; seen={seen[-5:]}")
 
 
+def test_ingest_sanitizes_uploaded_filename(client, tmp_path):
+    """上传文件名只能作为 basename 保存，不能用 ../ 写出 uploads 目录。"""
+    pdf = Path(__file__).resolve().parents[1] / "fixtures" / "sample.pdf"
+    with open(pdf, "rb") as f:
+        r = client.post(
+            "/api/ingest",
+            files={"file": ("../escape.pdf", f, "application/pdf")},
+        )
+    assert r.status_code == 200, r.text
+
+    assert (tmp_path / "uploads" / "escape.pdf").exists()
+    assert not (tmp_path / "escape.pdf").exists()
+
 def test_upload_and_query(client, tmp_path, monkeypatch):
     def fake_complete(self, system, max_tokens=1024):
         return "answer with [src]"

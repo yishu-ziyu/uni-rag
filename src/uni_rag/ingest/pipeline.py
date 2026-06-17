@@ -11,6 +11,14 @@ from uni_rag.store.bm25 import BM25Index
 from uni_rag.config import load_settings
 
 
+def _safe_upload_name(name: str) -> str:
+    """Return a filename-only upload name, stripping client-supplied paths."""
+    safe = Path(name.replace("\\", "/")).name
+    if safe in ("", ".", ".."):
+        raise ValueError("invalid upload filename")
+    return safe
+
+
 class IngestPipeline:
     """kb_id=None = legacy single-KB mode (v0.2 default collection 'chunks', single BM25 dir)."""
 
@@ -53,7 +61,7 @@ class IngestPipeline:
                 progress({"step": step, "percent": percent, "message": message, **extra})
 
         path = Path(path)
-        save_name = original_name or path.name
+        save_name = _safe_upload_name(original_name or path.name)
         emit("saving", 5, "正在保存上传文件")
         dest = self.uploads_dir / save_name
         dest.write_bytes(path.read_bytes())
