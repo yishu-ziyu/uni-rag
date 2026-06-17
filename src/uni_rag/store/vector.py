@@ -1,4 +1,4 @@
-"""Chroma wrapper for vector storage."""
+"""Chroma wrapper for vector storage. Each KB = one collection."""
 from __future__ import annotations
 from pathlib import Path
 import chromadb
@@ -7,9 +7,17 @@ from uni_rag.config import load_settings
 
 
 class VectorStore:
-    """Persistent Chroma collection wrapper."""
+    """Persistent Chroma collection wrapper.
 
-    def __init__(self, data_dir: Path | None = None):
+    `data_dir` = base directory; `collection_name` = unique per KB.
+    v0.2 default collection name was 'chunks'; v0.3 KB collections are 'kb_<id>'.
+    """
+
+    def __init__(
+        self,
+        data_dir: Path | None = None,
+        collection_name: str = "chunks",
+    ):
         if data_dir is None:
             data_dir = load_settings().chroma_dir
         self.client = chromadb.PersistentClient(
@@ -17,7 +25,7 @@ class VectorStore:
             settings=ChromaSettings(anonymized_telemetry=False),
         )
         self.collection = self.client.get_or_create_collection(
-            name="chunks",
+            name=collection_name,
             metadata={"hnsw:space": "cosine"},
         )
 
