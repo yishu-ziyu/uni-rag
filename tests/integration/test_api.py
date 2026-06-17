@@ -157,3 +157,67 @@ def test_export_message_invalid_format(client, tmp_path):
     SessionStore(load_settings().sessions_db_path).append(sid, "assistant", "a")
     r = client.get(f"/api/sessions/{sid}/messages/1/export?format=docx")
     assert r.status_code == 400
+
+
+def test_kb_crud_via_api(client):
+    """POST /api/kbs 创建，GET /api/kbs 列出，GET /api/kbs/{id} 详情，DELETE 删除。"""
+    r = client.post("/api/kbs", json={"name": "CS101", "description": "课程笔记"})
+    assert r.status_code == 200, r.text
+    kb = r.json()
+    assert kb["id"] == "cs101"
+    assert kb["name"] == "CS101"
+
+    r = client.get("/api/kbs")
+    assert r.status_code == 200
+    kbs = r.json()["kbs"]
+    assert any(k["id"] == "cs101" for k in kbs)
+
+    r = client.get("/api/kbs/cs101")
+    assert r.status_code == 200
+    assert r.json()["id"] == "cs101"
+
+    r = client.delete("/api/kbs/cs101")
+    assert r.status_code == 200
+    assert r.json()["deleted"] is True
+
+    r = client.get("/api/kbs/cs101")
+    assert r.status_code == 404
+
+
+def test_kb_ingest_uses_kb_scoped_collection(client, tmp_path, monkeypatch):
+    """POST /api/kbs/{id}/ingest 入库到该 KB 的 collection。"""
+    monkeypatch.setattr("uni_rag.llm.client.LLMClient.complete",
+                        lambda *a, **kw: "ok")
+    r = client.post("/api/kbs", json={"name": "CS101"})
+    assert r.status_code == 200
+
+    pdf = Path(__file__).resolve().parents[1] / "fixtures" / "sample.pdf"
+    with open(pdf, "rb") as f:
+        r = client.post(
+            "/api/kbs/cs101/ingest",
+            files={"file": ("sample.pdf", f, "application/pdf")},
+        )
+    assert r.status_code == 200, r.text
+    assert r.json()["chunks"] > 0
+
+    # 验证文件落到了 per-KB uploads
+    from uni_rag.config import load_settings
+    kb_uploads = load_settings().data_dir / "kbs" / "cs101" / "uploads"
+    assert (kb_uploads / "sample.pdf").exists()
+
+
+def test_session_kb_binding_via_api(client):
+    r = client.post("/api/kbs", json={"name": "A"})
+    r = client.post("/api/kbs", json={"name": "B"})
+
+    sid = "test-sess-1"
+    r = client.post(
+        f"/api/sessions/{sid}/kbs",
+        json={"kb_ids": ["a", "b"]},
+    )
+    assert r.status_code == 200, r.text
+
+    r = client.get(f"/api/sessions/{sid}/kbs")
+    assert r.status_code == 200
+    bound = r.json()["kbs"]
+    assert {k["id"] for k in bound} == {"a", "b"}

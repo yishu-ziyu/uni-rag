@@ -47,3 +47,33 @@ class DocumentChunksResponse(BaseModel):
 class ExportFormat(str):
     MD = "md"
     PDF = "pdf"
+
+
+class KbCreateRequest(BaseModel):
+    name: str
+    description: str = ""
+    id: str | None = None  # 可选指定 ID
+
+
+class KbInfo(BaseModel):
+    id: str
+    name: str
+    description: str
+    created_at: str
+
+
+class KbListResponse(BaseModel):
+    kbs: list[KbInfo]
+
+
+class SessionKbBindRequest(BaseModel):
+    kb_ids: list[str]
+
+
+class SessionKbListResponse(BaseModel):
+    session_id: str
+    kbs: list[KbInfo]
+
+
+class DeleteResponse(BaseModel):
+    deleted: bool
