@@ -7,6 +7,7 @@ data/uploads/*
 data/chroma/*
 data/bm25/*
 data/sessions.db
+data/kbs.db
 !data/.gitkeep
 !data/uploads/.gitkeep
 !data/chroma/.gitkeep
