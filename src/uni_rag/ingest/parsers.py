@@ -2,6 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
+import re
 import fitz  # PyMuPDF
 import docx
 from markdown_it import MarkdownIt
@@ -35,12 +36,41 @@ def _parse_pdf(path: Path) -> ParsedDocument:
 
 def _parse_docx(path: Path) -> ParsedDocument:
     d = docx.Document(str(path))
-    paragraphs = [p.text for p in d.paragraphs if p.text.strip()]
+
+    parts: list[str] = []
+
+    # 1. 段落（按 body 顺序）
+    for p in d.paragraphs:
+        text = p.text.strip()
+        if not text:
+            continue
+        text = _wrap_formulas(text)
+        parts.append(text)
+
+    # 2. 表格（按 body 顺序；用 d.element.body 顺序，简化：放在段落后）
+    for table in d.tables:
+        rows = []
+        for row in table.rows:
+            cells = [cell.text.strip() for cell in row.cells]
+            rows.append(" | ".join(cells))
+        if rows:
+            parts.append("\n".join(rows))
+
     return ParsedDocument(
-        text="\n\n".join(paragraphs),
+        text="\n\n".join(parts),
         format="docx",
         source_path=str(path),
     )
+
+
+_FORMULA_BLOCK_RE = re.compile(r"\$\$([^$]+)\$\$", re.DOTALL)
+
+
+def _wrap_formulas(text: str) -> str:
+    """把 $$...$$ 块公式包到 ``` 围栏里；$...$ 行内公式保留。"""
+    def block_sub(m: re.Match) -> str:
+        return f"```\n{m.group(1).strip()}\n```"
+    return _FORMULA_BLOCK_RE.sub(block_sub, text)
 
 
 def _parse_md(path: Path) -> ParsedDocument:
