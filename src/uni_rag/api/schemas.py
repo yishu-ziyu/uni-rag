@@ -1,0 +1,30 @@
+"""Pydantic schemas for API."""
+from __future__ import annotations
+from pydantic import BaseModel
+
+
+class QueryRequest(BaseModel):
+    question: str
+    session_id: str | None = None
+    top_k: int = 5
+
+
+class Citation(BaseModel):
+    chunk_id: str
+    source: str
+    section: str
+    text: str
+    span: tuple[int, int] | None = None
+
+
+class QueryResponse(BaseModel):
+    answer: str
+    citations: list[Citation]
+    session_id: str | None = None
+
+
+class IngestResponse(BaseModel):
+    source_id: str
+    chunks: int
+    format: str
+    filename: str
