@@ -22,8 +22,8 @@ class RAGPipeline:
         self.uploads_dir = load_settings().uploads_dir
         self.session_store = SessionStore(load_settings().sessions_db_path)
 
-    def ingest_file(self, path: Path) -> dict:
-        return self.ingest.ingest_file(path)
+    def ingest_file(self, path: Path, original_name: str | None = None) -> dict:
+        return self.ingest.ingest_file(path, original_name=original_name)
 
     def query(
         self,

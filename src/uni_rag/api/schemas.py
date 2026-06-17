@@ -28,3 +28,17 @@ class IngestResponse(BaseModel):
     chunks: int
     format: str
     filename: str
+
+
+class ChunkInfo(BaseModel):
+    """A single chunk of a document, for the side-panel viewer."""
+    id: str
+    text: str
+    span: tuple[int, int] | None = None
+    section: str = ""
+
+
+class DocumentChunksResponse(BaseModel):
+    """All chunks of a single document, ordered by offset."""
+    filename: str
+    chunks: list[ChunkInfo]

@@ -24,10 +24,11 @@ class IngestPipeline:
         h.update(path.read_bytes()[:1024 * 1024])  # 前 1MB
         return h.hexdigest()[:16]
 
-    def ingest_file(self, path: Path) -> dict:
+    def ingest_file(self, path: Path, original_name: str | None = None) -> dict:
         path = Path(path)
-        # 1. 复制到 uploads
-        dest = load_settings().uploads_dir / path.name
+        # 1. 复制到 uploads（用原始上传文件名，side-panel 按它查找）
+        save_name = original_name or path.name
+        dest = load_settings().uploads_dir / save_name
         dest.write_bytes(path.read_bytes())
 
         # 2. 解析
@@ -50,7 +51,7 @@ class IngestPipeline:
                 chunk_id=f"{source_id}:{c.start_offset}",
                 embedding=v,
                 metadata={
-                    "source": path.name,
+                    "source": save_name,
                     "format": doc.format,
                     "section": c.section_title or "",
                     "start": c.start_offset,
@@ -64,7 +65,7 @@ class IngestPipeline:
             self.bm25.add(
                 chunk_id=f"{source_id}:{c.start_offset}",
                 text=c.text,
-                metadata={"source": path.name, "section": c.section_title or ""},
+                metadata={"source": save_name, "section": c.section_title or ""},
             )
         self.bm25.save()
 
