@@ -2,6 +2,7 @@
 from __future__ import annotations
 import hashlib
 from pathlib import Path
+from collections.abc import Callable
 from uni_rag.ingest.parsers import parse_document
 from uni_rag.ingest.chunker import chunk_document
 from uni_rag.ingest.embedder import get_embedder
@@ -41,22 +42,37 @@ class IngestPipeline:
         h.update(path.read_bytes()[:1024 * 1024])  # 前 1MB
         return h.hexdigest()[:16]
 
-    def ingest_file(self, path: Path, original_name: str | None = None) -> dict:
+    def ingest_file(
+        self,
+        path: Path,
+        original_name: str | None = None,
+        progress: Callable[[dict], None] | None = None,
+    ) -> dict:
+        def emit(step: str, percent: int, message: str, **extra) -> None:
+            if progress:
+                progress({"step": step, "percent": percent, "message": message, **extra})
+
         path = Path(path)
         save_name = original_name or path.name
+        emit("saving", 5, "正在保存上传文件")
         dest = self.uploads_dir / save_name
         dest.write_bytes(path.read_bytes())
 
+        emit("parsing", 20, "正在解析文档内容")
         doc = parse_document(dest)
         source_id = self._source_id(dest)
 
+        emit("chunking", 40, "正在按章节和段落切分")
         chunks = chunk_document(doc.text, source_id=source_id)
         if not chunks:
+            emit("done", 100, "未解析出可用文本", chunks=0, source_id=source_id)
             return {"source_id": source_id, "chunks": 0, "format": doc.format}
 
         texts = [c.text for c in chunks]
+        emit("embedding", 60, f"正在生成 {len(chunks)} 个文本块的向量", chunks=len(chunks))
         vecs = self.embedder.embed(texts)
 
+        emit("indexing", 82, "正在写入向量索引和关键词索引", chunks=len(chunks))
         for c, v in zip(chunks, vecs):
             self.vector.add(
                 source_id=source_id,
@@ -79,6 +95,7 @@ class IngestPipeline:
                 metadata={"source": save_name, "section": c.section_title or ""},
             )
         self.bm25.save()
+        emit("done", 100, "入库完成", chunks=len(chunks), source_id=source_id)
 
         return {"source_id": source_id, "chunks": len(chunks), "format": doc.format}
 

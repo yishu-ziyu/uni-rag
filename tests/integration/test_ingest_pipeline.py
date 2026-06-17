@@ -18,7 +18,22 @@ def test_ingest_pdf_returns_chunk_count(pipeline):
     assert result["format"] == "pdf"
 
 
-def test_ingest_marks_persisted(pipeline):
+def test_ingest_emits_user_visible_progress(pipeline):
+    """长文件入库时应汇报阶段进度，避免用户以为页面卡死。"""
+    pdf = Path(__file__).resolve().parents[1] / "fixtures" / "sample.pdf"
+    events = []
+
+    result = pipeline.ingest_file(pdf, progress=events.append)
+
+    assert result["chunks"] > 0
+    steps = [event["step"] for event in events]
+    assert steps == ["saving", "parsing", "chunking", "embedding", "indexing", "done"]
+    assert events[0]["percent"] > 0
+    assert events[-1]["percent"] == 100
+    assert all(event["message"] for event in events)
+
+
+
     pdf = Path(__file__).resolve().parents[1] / "fixtures" / "sample.pdf"
     pipeline.ingest_file(pdf)
     # 检索能找回来

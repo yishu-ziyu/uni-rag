@@ -28,8 +28,8 @@ class RAGPipeline:
         )
         self.session_store = SessionStore(load_settings().sessions_db_path)
 
-    def ingest_file(self, path: Path, original_name: str | None = None) -> dict:
-        return self.ingest.ingest_file(path, original_name=original_name)
+    def ingest_file(self, path: Path, original_name: str | None = None, progress=None) -> dict:
+        return self.ingest.ingest_file(path, original_name=original_name, progress=progress)
 
     def query(
         self,
