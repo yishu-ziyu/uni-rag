@@ -19,6 +19,14 @@ class Settings(BaseSettings):
     # 数据目录
     uni_rag_data_dir: str = "./data"
 
+    # Session 长度上限（防止长对话打爆 LLM context）
+    uni_rag_max_session_messages: int = 20
+
+    @property
+    def max_session_messages(self) -> int:
+        """Alias for uni_rag_max_session_messages (used by RAG pipeline)."""
+        return self.uni_rag_max_session_messages
+
     @property
     def data_dir(self) -> Path:
         p = Path(self.uni_rag_data_dir).expanduser().resolve()

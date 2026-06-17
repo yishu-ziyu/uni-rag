@@ -23,3 +23,20 @@ def test_data_dir_override(monkeypatch, tmp_path):
     assert settings.data_dir == tmp_path
     # restore
     config_module._settings = None
+
+
+def test_max_session_messages_default():
+    """默认 max_session_messages=20，避免长对话把 LLM context 打爆。"""
+    from uni_rag.config import load_settings
+    s = load_settings()
+    assert s.uni_rag_max_session_messages == 20
+
+
+def test_max_session_messages_override(monkeypatch):
+    """UNI_RAG_MAX_SESSION_MESSAGES env var 可覆盖默认值。"""
+    monkeypatch.setenv("UNI_RAG_MAX_SESSION_MESSAGES", "5")
+    import uni_rag.config as cfg
+    cfg._settings = None
+    s = cfg.load_settings()
+    assert s.uni_rag_max_session_messages == 5
+    cfg._settings = None
