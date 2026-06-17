@@ -35,6 +35,27 @@ uv run pytest --cov=src/uni_rag --cov-report=term-missing  # 带 coverage
 
 v0.1 coverage: **96%**（target 70%, 实际跑 `pytest --cov=src/uni_rag`）。
 
+## Docker
+
+```bash
+# 1) 复制环境变量样板并填 ANTHROPIC_API_KEY
+cp .env.example .env
+# 编辑 .env
+
+# 2) 一键起服务（首跑会构建镜像，~5-10 分钟下载模型）
+docker compose up -d
+
+# 3) 看日志
+docker compose logs -f
+
+# 4) 停服务
+docker compose down
+```
+
+访问 `http://127.0.0.1:8766/`。
+
+数据持久化到 named volume `uni-rag-data`；删除容器不丢数据。
+
 ## 路线图
 
 - v0.1：PDF + Markdown 上传，单文件/多文件 Q&A，Notion AI 风格引用，多轮对话，Web + CLI
