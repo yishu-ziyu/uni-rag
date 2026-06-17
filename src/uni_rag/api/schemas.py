@@ -42,3 +42,8 @@ class DocumentChunksResponse(BaseModel):
     """All chunks of a single document, ordered by offset."""
     filename: str
     chunks: list[ChunkInfo]
+
+
+class ExportFormat(str):
+    MD = "md"
+    PDF = "pdf"

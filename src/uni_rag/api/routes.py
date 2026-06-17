@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi.responses import Response
 from uni_rag.rag.pipeline import RAGPipeline
 from uni_rag.session.store import SessionStore
 from uni_rag.store.vector import VectorStore
@@ -11,6 +12,7 @@ from uni_rag.api.schemas import (
     QueryRequest, QueryResponse, IngestResponse,
     ChunkInfo, DocumentChunksResponse,
 )
+from uni_rag.export.md_exporter import render_markdown
 
 
 router = APIRouter(prefix="/api")
@@ -94,3 +96,82 @@ def get_document_chunks(filename: str):
         ))
     rows.sort(key=lambda r: r.span[0] if r.span else 0)
     return DocumentChunksResponse(filename=filename, chunks=rows)
+
+
+def _build_export_payload(
+    question: str,
+    answer: str,
+) -> dict:
+    """Build a {question, answer, citations} payload for the export modules.
+
+    Re-runs retrieval on the same question to re-derive citations consistently.
+    If the original retrieval would fail (e.g. cleared vector store), citations is [].
+    """
+    payload: dict = {"question": question, "answer": answer, "citations": []}
+    try:
+        pipeline = get_pipeline()
+        result = pipeline.query(question, session_id=None, top_k=5)
+        payload["citations"] = result.get("citations", [])
+    except Exception:
+        # 导出在主对话失败时仍要可用；citations 留空
+        payload["citations"] = []
+    return payload
+
+
+@router.get("/sessions/{session_id}/messages/{message_index}/export")
+def export_message(session_id: str, message_index: int, format: str = "md"):
+    """Download a single assistant message as Markdown or PDF.
+
+    `format` must be 'md' or 'pdf'. The Nth (1-based) message must be 'assistant';
+    we walk back to find the most recent 'user' message to use as the question.
+    """
+    fmt = (format or "").lower()
+    if fmt not in ("md", "pdf"):
+        raise HTTPException(400, "format must be 'md' or 'pdf'")
+
+    settings = load_settings()
+    from uni_rag.session.store import SessionStore
+    store = SessionStore(settings.sessions_db_path)
+    msgs = store.get(session_id)
+    if not msgs:
+        raise HTTPException(404, f"Session not found or empty: {session_id}")
+    if message_index < 1 or message_index > len(msgs):
+        raise HTTPException(404, f"message_index out of range")
+
+    role, answer = msgs[message_index - 1]["role"], msgs[message_index - 1]["content"]
+    if role != "assistant":
+        raise HTTPException(400, "Only assistant messages can be exported")
+
+    # 找前一条 user message 作为 question
+    question = ""
+    for j in range(message_index - 2, -1, -1):
+        if msgs[j]["role"] == "user":
+            question = msgs[j]["content"]
+            break
+    if not question:
+        question = "（无对应问题）"
+
+    payload = _build_export_payload(question, answer)
+
+    if fmt == "md":
+        md_text = render_markdown(payload)
+        return Response(
+            content=md_text,
+            media_type="text/markdown; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="uni-rag-msg-{message_index}.md"'
+            },
+        )
+    # pdf
+    try:
+        from uni_rag.export.pdf_exporter import render_pdf
+    except Exception as e:
+        raise HTTPException(503, f"PDF export unavailable: {e}")
+    pdf_bytes = render_pdf(payload)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="uni-rag-msg-{message_index}.pdf"'
+        },
+    )
