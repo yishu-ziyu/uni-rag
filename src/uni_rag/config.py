@@ -55,6 +55,17 @@ class Settings(BaseSettings):
     def sessions_db_path(self) -> Path:
         return self.data_dir / "sessions.db"
 
+    @property
+    def kb_db_path(self) -> Path:
+        return self.data_dir / "kbs.db"
+
+    @property
+    def kb_dir(self) -> Path:
+        """Base dir for per-KB subdirectories (chroma/, bm25/, uploads/)."""
+        p = self.data_dir / "kbs"
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
 
 _settings: Settings | None = None
 

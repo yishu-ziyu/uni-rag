@@ -40,3 +40,19 @@ def test_max_session_messages_override(monkeypatch):
     s = cfg.load_settings()
     assert s.uni_rag_max_session_messages == 5
     cfg._settings = None
+
+
+def test_kb_db_path_default():
+    from uni_rag.config import load_settings
+    s = load_settings()
+    assert s.kb_db_path == s.data_dir / "kbs.db"
+
+
+def test_kb_dir_creates_and_lives_under_data_dir(monkeypatch, tmp_path):
+    monkeypatch.setenv("UNI_RAG_DATA_DIR", str(tmp_path))
+    import uni_rag.config as cfg
+    cfg._settings = None
+    s = cfg.load_settings()
+    assert s.kb_dir == tmp_path / "kbs"
+    assert s.kb_dir.exists()
+    cfg._settings = None
