@@ -67,3 +67,56 @@ def test_render_markdown_escapes_md_special_chars_in_citation_text():
     # 引用文本应被包到 code block 避免 markdown 注入
     assert "```" in md
     assert "# header | pipe *italic*" in md
+
+
+def _weasyprint_works() -> bool:
+    """Best-effort: try a 1-page render; if native libs are missing, return False."""
+    try:
+        from weasyprint import HTML
+        HTML(string="<html><body>ok</body></html>").write_pdf()
+        return True
+    except Exception:
+        return False
+
+
+_pdf_required = pytest.mark.skipif(
+    not _weasyprint_works(), reason="weasyprint native deps not loadable on this host"
+)
+
+
+@_pdf_required
+def test_render_pdf_returns_valid_pdf_bytes():
+    from uni_rag.export.pdf_exporter import render_pdf
+    payload = {
+        "question": "什么是监督学习？",
+        "answer": "监督学习使用标注数据。",
+        "citations": [
+            {
+                "chunk_id": "x:0",
+                "source": "chapter1.pdf",
+                "section": "1.1",
+                "text": "supervised",
+            }
+        ],
+    }
+    pdf_bytes = render_pdf(payload)
+    assert isinstance(pdf_bytes, bytes)
+    assert len(pdf_bytes) > 100
+    assert pdf_bytes.startswith(b"%PDF-")
+    assert pdf_bytes.rstrip().endswith(b"%%EOF") or b"%%EOF" in pdf_bytes[-1024:]
+
+
+@_pdf_required
+def test_render_pdf_handles_chinese_text():
+    from uni_rag.export.pdf_exporter import render_pdf
+    payload = {
+        "question": "中文问题",
+        "answer": "中文答案包含引用 [x:0]",
+        "citations": [
+            {"chunk_id": "x:0", "source": "s.pdf", "section": "1", "text": "中文 chunk"}
+        ],
+    }
+    pdf_bytes = render_pdf(payload)
+    assert pdf_bytes.startswith(b"%PDF-")
+    # PDF 内文字符存为字节流，无法直接 assert 文本，但 bytes 长度 > 500
+    assert len(pdf_bytes) > 500
