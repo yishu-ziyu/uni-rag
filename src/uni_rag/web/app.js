@@ -5,29 +5,248 @@ const dropzone = document.getElementById('dropzone');
 const chat = document.getElementById('chat');
 const form = document.getElementById('query-form');
 const questionInput = document.getElementById('question-input');
+const kbSelect = document.getElementById('kb-select');
+const kbNewName = document.getElementById('kb-new-name');
+const kbCreateBtn = document.getElementById('kb-create-btn');
+const ingestStatus = document.getElementById('ingest-status');
+const ingestStep = document.getElementById('ingest-step');
+const ingestPercent = document.getElementById('ingest-percent');
+const ingestProgress = document.getElementById('ingest-progress');
+const ingestMessage = document.getElementById('ingest-message');
+const submitButton = form.querySelector('button');
 
 let sessionId = null;
-let msgCounter = 0;  // tracks 1-based assistant message index (for export download)
+let currentKbId = '';
+let msgCounter = 0;  // tracks 1-based session message index for assistant export links
+let indexedFileCount = 0;
 const sources = new Map();  // filename → source_id
+
+async function loadKbs() {
+  kbSelect.innerHTML = '';
+  try {
+    const r = await fetch('/api/kbs');
+    if (!r.ok) throw new Error('加载知识库失败');
+    const data = await r.json();
+    if (!data.kbs.length) {
+      kbSelect.innerHTML = '<option value="">还没有知识库</option>';
+      currentKbId = '';
+      return;
+    }
+    data.kbs.forEach((kb) => {
+      const opt = document.createElement('option');
+      opt.value = kb.id;
+      opt.textContent = `${kb.id} — ${kb.name}`;
+      kbSelect.appendChild(opt);
+    });
+    const selected = data.kbs.find((kb) => kb.id === currentKbId)
+      || data.kbs.find((kb) => kb.id === 'default')
+      || data.kbs[0];
+    kbSelect.value = selected.id;
+    currentKbId = selected.id;
+    await loadDocumentsForCurrentKb();
+  } catch (err) {
+    kbSelect.innerHTML = '<option value="">加载失败，请刷新</option>';
+    currentKbId = '';
+  }
+}
+
+function resetWorkspaceForKb() {
+  sessionId = null;
+  msgCounter = 0;
+  indexedFileCount = 0;
+  chat.innerHTML = '';
+  showEmptyState();
+  fileList.innerHTML = '';
+  sources.clear();
+  updateQueryAvailability();
+  setIngestStatus({ hidden: true });
+  closePanel();
+}
+
+function showEmptyState() {
+  const empty = document.createElement('div');
+  empty.id = 'empty-state';
+  empty.className = 'empty-state';
+  empty.innerHTML = `
+    <div class="empty-title">先放一份材料进来</div>
+    <p>上传课程 PDF、讲义或 Markdown 后，再像问助教一样提问。回答会带引用，点击引用可以回到原文。</p>
+  `;
+  chat.appendChild(empty);
+}
+
+function updateQueryAvailability() {
+  const canAsk = indexedFileCount > 0;
+  questionInput.disabled = !canAsk;
+  submitButton.disabled = !canAsk;
+  questionInput.placeholder = canAsk
+    ? '例如：这篇文章的核心观点是什么？'
+    : '先上传材料，然后问：这篇文章的核心观点是什么？';
+}
+
+async function loadDocumentsForCurrentKb() {
+  const url = currentKbId
+    ? `/api/kbs/${encodeURIComponent(currentKbId)}/documents`
+    : '/api/documents';
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('加载文档列表失败');
+    const data = await r.json();
+    fileList.innerHTML = '';
+    indexedFileCount = data.documents.length;
+    data.documents.forEach((doc) => {
+      const li = document.createElement('li');
+      li.innerHTML = `<strong>${escapeHtml(doc.filename)}</strong><span>${doc.chunks} 块 · ${escapeHtml(currentKbId || 'default')}</span>`;
+      fileList.appendChild(li);
+    });
+    chat.innerHTML = '';
+    if (indexedFileCount === 0) showEmptyState();
+    updateQueryAvailability();
+  } catch (err) {
+    setIngestStatus({
+      step: '文档列表加载失败',
+      percent: 0,
+      message: err.message || '无法读取当前知识库的文档列表。',
+      hidden: false,
+      error: true,
+    });
+  }
+}
+
+function setIngestStatus({ step = '', percent = 0, message = '', hidden = false, error = false }) {
+  ingestStatus.classList.toggle('hidden', hidden);
+  ingestStatus.classList.toggle('error', error);
+  const safePercent = Math.max(0, Math.min(100, percent));
+  ingestStep.textContent = step;
+  ingestPercent.textContent = `${safePercent}%`;
+  ingestProgress.style.width = `${safePercent}%`;
+  ingestMessage.textContent = message;
+}
+
+function setBusy(isBusy) {
+  fileInput.disabled = isBusy;
+  kbSelect.disabled = isBusy;
+  kbNewName.disabled = isBusy;
+  kbCreateBtn.disabled = isBusy;
+  if (isBusy) {
+    questionInput.disabled = true;
+    submitButton.disabled = true;
+  } else {
+    updateQueryAvailability();
+  }
+}
+
+kbSelect.addEventListener('change', async (e) => {
+  currentKbId = e.target.value;
+  resetWorkspaceForKb();
+  await loadDocumentsForCurrentKb();
+});
+
+kbCreateBtn.addEventListener('click', async () => {
+  const name = kbNewName.value.trim();
+  if (!name) return;
+  const r = await fetch('/api/kbs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!r.ok) {
+    alert('创建知识库失败');
+    return;
+  }
+  const created = await r.json();
+  currentKbId = created.id;
+  kbNewName.value = '';
+  resetWorkspaceForKb();
+  await loadKbs();
+});
 
 // Upload
 async function uploadFile(file) {
-  const formData = new FormData();
-  formData.append('file', file);
-  const r = await fetch('/api/ingest', { method: 'POST', body: formData });
-  if (!r.ok) {
-    alert('上传失败');
-    return;
+  setBusy(true);
+  setIngestStatus({
+    step: '上传文件',
+    percent: 3,
+    message: '正在把文件交给本地解析任务。',
+    hidden: false,
+  });
+
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const url = currentKbId
+      ? `/api/kbs/${encodeURIComponent(currentKbId)}/ingest/jobs`
+      : '/api/ingest/jobs';
+    const started = await fetch(url, { method: 'POST', body: formData });
+    const startedData = await started.json();
+    if (!started.ok) throw new Error(startedData.detail || '上传失败');
+
+    const data = await waitForIngestJob(startedData.status_url);
+    sources.set(file.name, data.result.source_id);
+    indexedFileCount += 1;
+    const emptyState = document.getElementById('empty-state');
+    if (emptyState) emptyState.remove();
+    const li = document.createElement('li');
+    li.innerHTML = `<strong>${escapeHtml(file.name)}</strong><span>${data.result.chunks} 块 · ${escapeHtml(currentKbId || 'default')}</span>`;
+    fileList.appendChild(li);
+    setIngestStatus({
+      step: '入库完成',
+      percent: 100,
+      message: `已解析 ${data.result.chunks} 个文本块，可以开始提问。`,
+      hidden: false,
+    });
+    updateQueryAvailability();
+  } catch (err) {
+    setIngestStatus({
+      step: '入库失败',
+      percent: 100,
+      message: err.message || '上传或解析失败，请换一个文件再试。',
+      hidden: false,
+      error: true,
+    });
+  } finally {
+    setBusy(false);
   }
-  const data = await r.json();
-  sources.set(file.name, data.source_id);
-  const li = document.createElement('li');
-  li.textContent = `${file.name} · ${data.chunks} 块`;
-  fileList.appendChild(li);
+}
+
+async function waitForIngestJob(statusUrl) {
+  for (;;) {
+    const r = await fetch(statusUrl);
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || '读取入库进度失败');
+    setIngestStatus({
+      step: readableIngestStep(data.step),
+      percent: data.percent,
+      message: data.message,
+      hidden: false,
+      error: data.status === 'failed',
+    });
+    if (data.status === 'completed') return data;
+    if (data.status === 'failed') throw new Error(data.error || data.message || '入库失败');
+    await sleep(650);
+  }
+}
+
+function readableIngestStep(step) {
+  return ({
+    queued: '排队中',
+    loading_model: '加载模型',
+    saving: '保存文件',
+    parsing: '解析文档',
+    chunking: '切分文本',
+    embedding: '生成向量',
+    indexing: '写入索引',
+    done: '入库完成',
+    failed: '入库失败',
+  })[step] || '处理中';
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 fileInput.addEventListener('change', (e) => {
   for (const f of e.target.files) uploadFile(f);
+  fileInput.value = '';
 });
 
 dropzone.addEventListener('dragover', (e) => {
@@ -46,20 +265,63 @@ form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const question = questionInput.value.trim();
   if (!question) return;
+  if (indexedFileCount === 0) {
+    setIngestStatus({
+      step: '请先上传资料',
+      percent: 0,
+      message: '当前知识库还没有可检索的文档。先上传课程材料，再开始提问。',
+      hidden: false,
+    });
+    return;
+  }
+
   addMessage('user', question);
   questionInput.value = '';
-  const r = await fetch('/api/query', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question, session_id: sessionId }),
-  });
-  const data = await r.json();
-  sessionId = data.session_id;
-  addMessage('assistant', data.answer, data.citations);
+  questionInput.disabled = true;
+  submitButton.disabled = true;
+  const pending = addMessage('assistant', '正在检索当前知识库，并组织带引用的回答…');
+
+  try {
+    const endpoint = currentKbId
+      ? `/api/kbs/${encodeURIComponent(currentKbId)}/query`
+      : '/api/query';
+    const r = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, session_id: sessionId }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      updateMessage(pending, data.detail || '请求失败，请稍后再试。');
+      return;
+    }
+    sessionId = data.session_id;
+    msgCounter += 2; // backend stores one user message + one assistant message
+    updateMessage(pending, data.answer, data.citations, msgCounter);
+  } catch (err) {
+    updateMessage(pending, err.message || '请求失败，请检查服务是否仍在运行。');
+  } finally {
+    updateQueryAvailability();
+    questionInput.focus();
+  }
 });
 
 function addMessage(role, text, citations = []) {
   const div = document.createElement('div');
+  div.className = `message ${role}`;
+  renderMessage(div, role, text, citations);
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+
+function updateMessage(div, text, citations = [], messageIndex = null) {
+  renderMessage(div, 'assistant', text, citations, messageIndex);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function renderMessage(div, role, text, citations = [], messageIndex = null) {
+  div.innerHTML = '';
   div.className = `message ${role}`;
   const content = document.createElement('div');
   content.className = 'content';
@@ -74,30 +336,31 @@ function addMessage(role, text, citations = []) {
       chip.type = 'button';
       chip.className = 'cite-chip';
       chip.textContent = `[${i + 1}] ${c.source}${c.section ? ' · ' + c.section : ''}`;
-      chip.addEventListener('click', () => openCitation(c.source, c.span, c.text));
+      chip.addEventListener('click', () => openCitation(c.source, c.span, c.text, currentKbId));
       cits.appendChild(chip);
     });
     div.appendChild(cits);
+  } else if (role === 'assistant' && messageIndex) {
+    const warning = document.createElement('div');
+    warning.className = 'source-warning';
+    warning.textContent = '这条回答没有可追溯引用，不建议直接采信。';
+    div.appendChild(warning);
   }
 
-  // Export 按钮（仅 assistant 消息）
-  if (role === 'assistant' && sessionId) {
-    msgCounter += 1;
-    const seq = msgCounter;
+  // Export 按钮（仅已写入 session 的 assistant 消息）
+  if (role === 'assistant' && sessionId && messageIndex) {
     const actions = document.createElement('div');
     actions.className = 'msg-actions';
     ['md', 'pdf'].forEach((fmt) => {
       const a = document.createElement('a');
       a.className = 'download-link';
       a.textContent = fmt === 'md' ? 'Download .md' : 'Download .pdf';
-      a.href = `/api/sessions/${sessionId}/messages/${seq}/export?format=${fmt}`;
-      a.setAttribute('download', `uni-rag-msg-${seq}.${fmt}`);
+      a.href = `/api/sessions/${sessionId}/messages/${messageIndex}/export?format=${fmt}`;
+      a.setAttribute('download', `uni-rag-msg-${messageIndex}.${fmt}`);
       actions.appendChild(a);
     });
     div.appendChild(actions);
   }
-  chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
 }
 
 // Side panel 控制
@@ -111,14 +374,18 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closePanel();
 });
 
-function openCitation(filename, span, citedText) {
+function openCitation(filename, span, citedText, kbId = '') {
   panelTitle.textContent = filename;
   panelBody.innerHTML = '<p style="color:var(--accent)">加载中…</p>';
   docPanel.classList.remove('hidden');
   docPanel.classList.add('open');
   docPanel.setAttribute('aria-hidden', 'false');
 
-  fetch(`/api/documents/${encodeURIComponent(filename)}/chunks`)
+  const url = kbId
+    ? `/api/kbs/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(filename)}/chunks`
+    : `/api/documents/${encodeURIComponent(filename)}/chunks`;
+
+  fetch(url)
     .then((r) => {
       if (!r.ok) throw new Error('加载失败');
       return r.json();
@@ -191,3 +458,5 @@ function closePanel() {
   docPanel.setAttribute('aria-hidden', 'true');
   panelBody.innerHTML = '';
 }
+
+loadKbs();

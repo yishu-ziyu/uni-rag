@@ -7,33 +7,73 @@
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-  <header>
-    <h1>uni-rag</h1>
-    <p>上传文档，问问题，得到带高亮引用的答案</p>
-  </header>
-
-  <main>
-    <section id="upload-section">
-      <h2>1. 上传文档</h2>
-      <div id="dropzone">
-        <p>拖拽 PDF / Markdown 到这里</p>
-        <p>或</p>
-        <input type="file" id="file-input" accept=".pdf,.md,.markdown,.docx" />
-      </div>
-      <ul id="file-list"></ul>
+  <main class="shell">
+    <section class="hero-card">
+      <div class="hero-kicker">Local study desk</div>
+      <h1>uni-rag</h1>
+      <p>把课程 PDF、讲义和笔记放进一个本地知识库，然后带着原文依据提问。</p>
     </section>
 
-    <section id="query-section">
-      <h2>2. 问问题</h2>
-      <div id="chat"></div>
-      <form id="query-form">
-        <input type="text" id="question-input" placeholder="例如：第三章讲了什么？" required />
-        <button type="submit">问</button>
-      </form>
+    <section class="reader-layout">
+      <article class="workspace">
+        <section id="upload-section" class="panel-block">
+          <div class="section-label">01 · 添加资料</div>
+          <h2>先把材料放进当前知识库</h2>
+          <div id="dropzone">
+            <p class="drop-title">拖拽 PDF / Markdown / DOCX 到这里</p>
+            <p class="drop-subtitle">或者选择本地文件，上传后会自动切块并建立索引。</p>
+            <input type="file" id="file-input" accept=".pdf,.md,.markdown,.docx" />
+          </div>
+          <ul id="file-list"></ul>
+          <div id="ingest-status" class="status-card hidden" aria-live="polite">
+            <div class="status-head">
+              <span id="ingest-step">准备上传</span>
+              <span id="ingest-percent">0%</span>
+            </div>
+            <div class="progress-track">
+              <div id="ingest-progress" class="progress-fill" style="width: 0%"></div>
+            </div>
+            <p id="ingest-message">选择文件后会显示解析、切块、向量化和写入索引的进度。</p>
+          </div>
+        </section>
+
+        <section id="query-section" class="panel-block">
+          <div class="section-label">02 · 提问</div>
+          <h2>像问助教一样问这组材料</h2>
+          <div id="chat">
+            <div id="empty-state" class="empty-state">
+              <div class="empty-title">先放一份材料进来</div>
+              <p>上传课程 PDF、讲义或 Markdown 后，再像问助教一样提问。回答会带引用，点击引用可以回到原文。</p>
+            </div>
+          </div>
+          <form id="query-form">
+            <input type="text" id="question-input" placeholder="先上传材料，然后问：这篇文章的核心观点是什么？" required disabled />
+            <button type="submit" disabled>提问</button>
+          </form>
+        </section>
+      </article>
+
+      <aside class="control-rail" aria-label="知识库控制栏">
+        <div id="kb-section" class="rail-card">
+          <div class="section-label">Knowledge base</div>
+          <h2>当前知识库</h2>
+          <select id="kb-select">
+            <option value="">加载中…</option>
+          </select>
+          <div class="kb-create-row">
+            <input type="text" id="kb-new-name" placeholder="例如 CS101" />
+            <button type="button" id="kb-create-btn">新建</button>
+          </div>
+          <p class="rail-hint">切换知识库会清空当前聊天，但不会删除已上传文件。</p>
+        </div>
+
+        <div class="rail-card subtle">
+          <div class="section-label">Workflow</div>
+          <p>上传 → 提问 → 点击引用 → 查看原文高亮 → 导出答案。</p>
+        </div>
+      </aside>
     </section>
   </main>
-
-  <script src="/static/app.js"></script>
 
   <aside id="doc-panel" class="hidden" aria-hidden="true">
     <div class="panel-header">
@@ -42,5 +82,7 @@
     </div>
     <div id="panel-body" class="panel-body"></div>
   </aside>
+
+  <script src="/static/app.js"></script>
 </body>
 </html>
