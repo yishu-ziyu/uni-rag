@@ -7,6 +7,7 @@ const form = document.getElementById('query-form');
 const questionInput = document.getElementById('question-input');
 
 let sessionId = null;
+let msgCounter = 0;  // tracks 1-based assistant message index (for export download)
 const sources = new Map();  // filename → source_id
 
 // Upload
@@ -77,6 +78,23 @@ function addMessage(role, text, citations = []) {
       cits.appendChild(chip);
     });
     div.appendChild(cits);
+  }
+
+  // Export 按钮（仅 assistant 消息）
+  if (role === 'assistant' && sessionId) {
+    msgCounter += 1;
+    const seq = msgCounter;
+    const actions = document.createElement('div');
+    actions.className = 'msg-actions';
+    ['md', 'pdf'].forEach((fmt) => {
+      const a = document.createElement('a');
+      a.className = 'download-link';
+      a.textContent = fmt === 'md' ? 'Download .md' : 'Download .pdf';
+      a.href = `/api/sessions/${sessionId}/messages/${seq}/export?format=${fmt}`;
+      a.setAttribute('download', `uni-rag-msg-${seq}.${fmt}`);
+      actions.appendChild(a);
+    });
+    div.appendChild(actions);
   }
   chat.appendChild(div);
   chat.scrollTop = chat.scrollHeight;

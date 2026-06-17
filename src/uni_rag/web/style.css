@@ -156,3 +156,16 @@ section h2 { font-size: 1.2rem; margin-bottom: 1rem; color: var(--accent); }
   transition: background 0.15s;
 }
 .cite-chip:hover { background: #e0d8c8; }
+
+.msg-actions { margin-top: 0.5rem; display: flex; gap: 0.5rem; }
+.download-link {
+  display: inline-block;
+  padding: 0.25rem 0.7rem;
+  background: var(--soft);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 0.78rem;
+  color: var(--accent);
+  text-decoration: none;
+}
+.download-link:hover { background: #e0d8c8; }
