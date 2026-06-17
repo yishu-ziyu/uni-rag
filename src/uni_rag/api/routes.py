@@ -2,21 +2,30 @@
 from __future__ import annotations
 from pathlib import Path
 import tempfile
+import threading
+import uuid
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import Response
 from uni_rag.rag.pipeline import RAGPipeline
 from uni_rag.session.store import SessionStore
 from uni_rag.store.vector import VectorStore
+from uni_rag.store.kb import KBStore
 from uni_rag.config import load_settings
 from uni_rag.api.schemas import (
     QueryRequest, QueryResponse, IngestResponse,
+    IngestJobStartResponse, IngestJobStatusResponse,
+    DocumentInfo, DocumentListResponse,
     ChunkInfo, DocumentChunksResponse,
+    KbCreateRequest, KbInfo, KbListResponse,
+    SessionKbBindRequest, SessionKbListResponse, DeleteResponse,
 )
 from uni_rag.export.md_exporter import render_markdown
 
 
 router = APIRouter(prefix="/api")
 _pipeline: RAGPipeline | None = None
+_ingest_jobs: dict[str, dict] = {}
+_ingest_jobs_lock = threading.Lock()
 
 
 def get_pipeline() -> RAGPipeline:
@@ -26,9 +35,115 @@ def get_pipeline() -> RAGPipeline:
     return _pipeline
 
 
+def _set_ingest_job(key: str, **updates) -> None:
+    with _ingest_jobs_lock:
+        current = _ingest_jobs.get(key, {})
+        _ingest_jobs[key] = {**current, **updates}
+
+
+def _get_ingest_job(job_id: str) -> dict | None:
+    with _ingest_jobs_lock:
+        job = _ingest_jobs.get(job_id)
+        return dict(job) if job else None
+
+
+def _run_ingest_job(
+    job_id: str,
+    tmp_path: Path,
+    filename: str,
+    kb_id: str | None,
+) -> None:
+    def on_progress(event: dict) -> None:
+        _set_ingest_job(
+            job_id,
+            status="running",
+            step=event.get("step", "running"),
+            percent=int(event.get("percent", 0)),
+            message=str(event.get("message", "正在处理")),
+        )
+
+    try:
+        _set_ingest_job(
+            job_id,
+            status="running",
+            step="loading_model",
+            percent=8,
+            message="正在加载本地向量模型，首次使用可能需要更久。",
+        )
+        pipeline = get_pipeline() if kb_id is None else _pipeline_for_kb(kb_id)
+        result = pipeline.ingest_file(tmp_path, original_name=filename, progress=on_progress)
+        response = IngestResponse(
+            source_id=result["source_id"],
+            chunks=result["chunks"],
+            format=result["format"],
+            filename=filename,
+        )
+        _set_ingest_job(
+            job_id,
+            status="completed",
+            step="done",
+            percent=100,
+            message="入库完成，可以开始提问。",
+            result=response.model_dump(),
+        )
+    except Exception as e:
+        _set_ingest_job(
+            job_id,
+            status="failed",
+            step="failed",
+            percent=100,
+            message="入库失败，请换一个文件再试。",
+            error=str(e),
+        )
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+def _start_ingest_job(file: UploadFile, kb_id: str | None = None) -> IngestJobStartResponse:
+    if not file.filename:
+        raise HTTPException(400, "No filename")
+    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
+        content = file.file.read()
+        tmp.write(content)
+        tmp_path = Path(tmp.name)
+
+    job_id = uuid.uuid4().hex
+    _set_ingest_job(
+        job_id,
+        job_id=job_id,
+        status="queued",
+        step="queued",
+        percent=1,
+        message="已收到文件，准备开始解析。",
+        filename=file.filename,
+        result=None,
+        error=None,
+    )
+    worker = threading.Thread(
+        target=_run_ingest_job,
+        args=(job_id, tmp_path, file.filename, kb_id),
+        daemon=True,
+    )
+    worker.start()
+    return IngestJobStartResponse(job_id=job_id, status_url=f"/api/ingest/jobs/{job_id}")
+
+
 @router.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@router.post("/ingest/jobs", response_model=IngestJobStartResponse)
+def start_ingest_job(file: UploadFile = File(...)):
+    return _start_ingest_job(file)
+
+
+@router.get("/ingest/jobs/{job_id}", response_model=IngestJobStatusResponse)
+def get_ingest_job(job_id: str):
+    job = _get_ingest_job(job_id)
+    if job is None:
+        raise HTTPException(404, f"Ingest job not found: {job_id}")
+    return IngestJobStatusResponse(**job)
 
 
 @router.post("/ingest", response_model=IngestResponse)
@@ -53,18 +168,34 @@ async def ingest(file: UploadFile = File(...)):
     )
 
 
+def _query_pipeline(pipeline: RAGPipeline, question: str, session_id: str, top_k: int) -> dict:
+    try:
+        return pipeline.query(question, session_id=session_id, top_k=top_k)
+    except Exception as e:
+        raise HTTPException(
+            502,
+            "MiniMax 回答生成失败。请检查 API key / 网络连接，或稍后重试。",
+        ) from e
+
+
 @router.post("/query", response_model=QueryResponse)
 def query(req: QueryRequest):
     sid = req.session_id
     if not sid:
         # 自动开新 session
         sid = SessionStore(load_settings().sessions_db_path).create()
-    result = get_pipeline().query(req.question, session_id=sid, top_k=req.top_k)
+    result = _query_pipeline(get_pipeline(), req.question, sid, req.top_k)
     return QueryResponse(
         answer=result["answer"],
         citations=result["citations"],
         session_id=sid,
     )
+
+
+@router.get("/documents", response_model=DocumentListResponse)
+def list_documents():
+    """List documents already ingested into the default KB."""
+    return DocumentListResponse(documents=_list_documents_for_kb("default"))
 
 
 @router.get("/documents/{filename}/chunks", response_model=DocumentChunksResponse)
@@ -96,6 +227,200 @@ def get_document_chunks(filename: str):
         ))
     rows.sort(key=lambda r: r.span[0] if r.span else 0)
     return DocumentChunksResponse(filename=filename, chunks=rows)
+
+
+# --- Knowledge base API ---
+
+def _kb_store() -> KBStore:
+    return KBStore(load_settings().kb_db_path)
+
+
+def _to_kb_info(record: dict) -> KbInfo:
+    return KbInfo(
+        id=record["id"],
+        name=record["name"],
+        description=record["description"],
+        created_at=record["created_at"],
+    )
+
+
+def _pipeline_for_kb(kb_id: str) -> RAGPipeline:
+    """Map the default KB to legacy v0.2 storage; other KBs use scoped storage."""
+    return RAGPipeline(kb_id=None if kb_id == "default" else kb_id)
+
+
+def _vector_for_kb(kb_id: str) -> VectorStore:
+    if kb_id == "default":
+        return VectorStore()
+    kb_base = load_settings().data_dir / "kbs" / kb_id
+    return VectorStore(data_dir=kb_base / "chroma", collection_name=f"kb_{kb_id}")
+
+
+def _uploads_dir_for_kb(kb_id: str) -> Path:
+    if kb_id == "default":
+        return load_settings().uploads_dir
+    return load_settings().data_dir / "kbs" / kb_id / "uploads"
+
+
+def _list_documents_for_kb(kb_id: str) -> list[DocumentInfo]:
+    uploads_dir = _uploads_dir_for_kb(kb_id)
+    if not uploads_dir.exists():
+        return []
+
+    counts: dict[str, int] = {}
+    vector = _vector_for_kb(kb_id)
+    try:
+        res = vector.collection.get(include=["metadatas"])
+    except Exception:
+        res = {"metadatas": []}
+    for meta in res.get("metadatas") or []:
+        source = str(meta.get("source", "")) if meta else ""
+        if source:
+            counts[source] = counts.get(source, 0) + 1
+
+    documents: list[DocumentInfo] = []
+    for path in sorted(p for p in uploads_dir.iterdir() if p.is_file() and not p.name.startswith(".")):
+        documents.append(DocumentInfo(filename=path.name, chunks=counts.get(path.name, 0)))
+    return documents
+
+
+@router.post("/kbs", response_model=KbInfo)
+def create_kb(req: KbCreateRequest):
+    try:
+        record = _kb_store().create(req.name, req.description, kb_id=req.id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return _to_kb_info(record)
+
+
+@router.get("/kbs", response_model=KbListResponse)
+def list_kbs():
+    store = _kb_store()
+    store.ensure_default()
+    return KbListResponse(kbs=[_to_kb_info(kb) for kb in store.list()])
+
+
+@router.get("/kbs/{kb_id}", response_model=KbInfo)
+def get_kb(kb_id: str):
+    record = _kb_store().get(kb_id)
+    if record is None:
+        raise HTTPException(404, f"KB not found: {kb_id}")
+    return _to_kb_info(record)
+
+
+@router.delete("/kbs/{kb_id}", response_model=DeleteResponse)
+def delete_kb(kb_id: str):
+    deleted = _kb_store().delete(kb_id)
+    if not deleted:
+        raise HTTPException(404, f"KB not found: {kb_id}")
+    return DeleteResponse(deleted=True)
+
+
+@router.post("/kbs/{kb_id}/ingest/jobs", response_model=IngestJobStartResponse)
+def start_kb_ingest_job(kb_id: str, file: UploadFile = File(...)):
+    if _kb_store().get(kb_id) is None:
+        raise HTTPException(404, f"KB not found: {kb_id}")
+    return _start_ingest_job(file, kb_id=kb_id)
+
+
+@router.post("/kbs/{kb_id}/ingest", response_model=IngestResponse)
+async def ingest_into_kb(kb_id: str, file: UploadFile = File(...)):
+    if _kb_store().get(kb_id) is None:
+        raise HTTPException(404, f"KB not found: {kb_id}")
+    if not file.filename:
+        raise HTTPException(400, "No filename")
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = Path(tmp.name)
+    try:
+        result = _pipeline_for_kb(kb_id).ingest_file(tmp_path, original_name=file.filename)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+    return IngestResponse(
+        source_id=result["source_id"],
+        chunks=result["chunks"],
+        format=result["format"],
+        filename=file.filename,
+    )
+
+
+@router.get("/kbs/{kb_id}/documents", response_model=DocumentListResponse)
+def list_kb_documents(kb_id: str):
+    """List documents already ingested into a KB."""
+    if _kb_store().get(kb_id) is None:
+        raise HTTPException(404, f"KB not found: {kb_id}")
+    return DocumentListResponse(documents=_list_documents_for_kb(kb_id))
+
+
+@router.get("/kbs/{kb_id}/documents/{filename}/chunks", response_model=DocumentChunksResponse)
+def get_kb_document_chunks(kb_id: str, filename: str):
+    """Return chunks for a document inside a KB, for the citation side panel."""
+    if _kb_store().get(kb_id) is None:
+        raise HTTPException(404, f"KB not found: {kb_id}")
+
+    target = _uploads_dir_for_kb(kb_id) / filename
+    if not target.exists():
+        raise HTTPException(404, f"Document not found: {filename}")
+
+    vector = _vector_for_kb(kb_id)
+    res = vector.collection.get(where={"source": filename}, include=["metadatas", "documents"])
+    if not res["ids"]:
+        return DocumentChunksResponse(filename=filename, chunks=[])
+
+    rows: list[ChunkInfo] = []
+    for i, cid in enumerate(res["ids"]):
+        meta = res["metadatas"][i] if res["metadatas"] else {}
+        doc_text = res["documents"][i] if res["documents"] else ""
+        start = int(meta.get("start", 0) or 0)
+        end = int(meta.get("end", start + len(doc_text)) or (start + len(doc_text)))
+        rows.append(ChunkInfo(
+            id=cid,
+            text=doc_text,
+            span=(start, end),
+            section=str(meta.get("section", "")),
+        ))
+    rows.sort(key=lambda r: r.span[0] if r.span else 0)
+    return DocumentChunksResponse(filename=filename, chunks=rows)
+
+
+@router.post("/kbs/{kb_id}/query", response_model=QueryResponse)
+def query_kb(kb_id: str, req: QueryRequest):
+    """Ask a question against one KB; keeps v0.2 /api/query unchanged."""
+    if _kb_store().get(kb_id) is None:
+        raise HTTPException(404, f"KB not found: {kb_id}")
+    sid = req.session_id
+    if not sid:
+        sid = SessionStore(load_settings().sessions_db_path).create()
+    result = _query_pipeline(_pipeline_for_kb(kb_id), req.question, sid, req.top_k)
+    return QueryResponse(
+        answer=result["answer"],
+        citations=result["citations"],
+        session_id=sid,
+    )
+
+
+@router.post("/sessions/{session_id}/kbs", response_model=SessionKbListResponse)
+def bind_session_kbs(session_id: str, req: SessionKbBindRequest):
+    store = _kb_store()
+    try:
+        store.bind_session(session_id, req.kb_ids)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    return SessionKbListResponse(
+        session_id=session_id,
+        kbs=[_to_kb_info(kb) for kb in store.get_session_kbs(session_id)],
+    )
+
+
+@router.get("/sessions/{session_id}/kbs", response_model=SessionKbListResponse)
+def get_session_kbs(session_id: str):
+    store = _kb_store()
+    return SessionKbListResponse(
+        session_id=session_id,
+        kbs=[_to_kb_info(kb) for kb in store.get_session_kbs(session_id)],
+    )
 
 
 def _build_export_payload(

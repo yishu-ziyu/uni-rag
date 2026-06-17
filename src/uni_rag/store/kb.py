@@ -14,7 +14,7 @@ class KbRecord(TypedDict):
     created_at: str  # ISO 8601
 
 
-_ID_RE = re.compile(r"^[a-z0-9_]{3,32}$")
+_ID_RE = re.compile(r"^[a-z0-9_]{1,32}$")
 
 
 def _slugify(s: str) -> str:
@@ -22,15 +22,15 @@ def _slugify(s: str) -> str:
 
     Rules:
     - name is lowercased
-    - must already match `^[a-z0-9_]{3,32}$` after lowercase (no mangling)
-    - a name like "AB" (too short) or "CS-101" (hyphen) or "CS 101" (space)
-      all fail rather than silently mangling
+    - must already match `^[a-z0-9_]{1,32}$` after lowercase (no mangling)
+    - a name like "CS-101" (hyphen) or "CS 101" (space)
+      fails rather than silently mangling
     """
     s = s.strip().lower()
     if not _ID_RE.match(s):
         raise ValueError(
             f"invalid kb id from name {s!r}: must match {_ID_RE.pattern} "
-            "(3-32 chars, a-z0-9_)"
+            "(1-32 chars, a-z0-9_)"
         )
     return s[:32]
 
@@ -42,7 +42,7 @@ def _now() -> str:
 def _validate_id(kb_id: str) -> None:
     if not _ID_RE.match(kb_id):
         raise ValueError(
-            f"invalid kb id {kb_id!r}: must match {_ID_RE.pattern} (3-32 chars, a-z0-9_)"
+            f"invalid kb id {kb_id!r}: must match {_ID_RE.pattern} (1-32 chars, a-z0-9_)"
         )
 
 

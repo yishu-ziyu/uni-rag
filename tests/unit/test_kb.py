@@ -33,7 +33,7 @@ def test_kbstore_duplicate_id_raises(store):
 
 def test_kbstore_invalid_id_raises(store):
     with pytest.raises(ValueError, match="invalid"):
-        store.create("AB", "bad")  # 太短
+        store.create("", "bad")  # 空 ID 没有可绑定的知识库标识
     with pytest.raises(ValueError, match="invalid"):
         store.create("CS 101", "bad")  # 含空格
     with pytest.raises(ValueError, match="invalid"):

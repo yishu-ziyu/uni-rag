@@ -30,6 +30,31 @@ class IngestResponse(BaseModel):
     filename: str
 
 
+class IngestJobStartResponse(BaseModel):
+    job_id: str
+    status_url: str
+
+
+class IngestJobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    step: str
+    percent: int
+    message: str
+    filename: str
+    result: IngestResponse | None = None
+    error: str | None = None
+
+
+class DocumentInfo(BaseModel):
+    filename: str
+    chunks: int
+
+
+class DocumentListResponse(BaseModel):
+    documents: list[DocumentInfo]
+
+
 class ChunkInfo(BaseModel):
     """A single chunk of a document, for the side-panel viewer."""
     id: str

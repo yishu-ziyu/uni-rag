@@ -24,6 +24,11 @@ _pdf_required = pytest.mark.skipif(
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("UNI_RAG_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    from uni_rag import config as config_module
+    from uni_rag.api import routes as routes_module
+
+    config_module._settings = None
+    routes_module._pipeline = None
     app = create_app()
     return TestClient(app)
 
@@ -32,6 +37,34 @@ def test_health(client):
     r = client.get("/api/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+
+
+def test_ingest_job_reports_progress(client):
+    """POST /api/ingest/jobs 后可轮询进度，用户不会在解析和向量化阶段空等。"""
+    pdf = Path(__file__).resolve().parents[1] / "fixtures" / "sample.pdf"
+    with open(pdf, "rb") as f:
+        r = client.post(
+            "/api/ingest/jobs",
+            files={"file": ("sample.pdf", f, "application/pdf")},
+        )
+    assert r.status_code == 200, r.text
+    status_url = r.json()["status_url"]
+
+    import time
+    seen = []
+    for _ in range(180):
+        time.sleep(0.2)
+        r = client.get(status_url)
+        assert r.status_code == 200, r.text
+        data = r.json()
+        seen.append(data["status"])
+        assert 0 <= data["percent"] <= 100
+        assert data["message"]
+        if data["status"] == "completed":
+            assert data["result"]["chunks"] > 0
+            break
+    else:
+        raise AssertionError(f"ingest job did not complete; seen={seen[-5:]}")
 
 
 def test_upload_and_query(client, tmp_path, monkeypatch):
@@ -49,6 +82,21 @@ def test_upload_and_query(client, tmp_path, monkeypatch):
     assert r.status_code == 200
     assert "answer" in r.json()
 
+
+def test_query_llm_failure_returns_user_friendly_error(client, monkeypatch):
+    """MiniMax 调用失败时，学生应看到可理解的错误，而不是裸 500。"""
+    def boom(self, system, max_tokens=1024):
+        raise RuntimeError("provider exploded")
+
+    monkeypatch.setattr("uni_rag.llm.client.LLMClient.complete", boom)
+    pdf = Path(__file__).resolve().parents[1] / "fixtures" / "sample.pdf"
+    with open(pdf, "rb") as f:
+        r = client.post("/api/ingest", files={"file": ("sample.pdf", f, "application/pdf")})
+    assert r.status_code == 200
+
+    r = client.post("/api/query", json={"question": "what is supervised learning?"})
+    assert r.status_code == 502
+    assert "MiniMax" in r.json()["detail"]
 
 def test_get_document_chunks(client, tmp_path, monkeypatch):
     """GET /api/documents/{filename}/chunks returns the file's chunks."""
@@ -159,6 +207,15 @@ def test_export_message_invalid_format(client, tmp_path):
     assert r.status_code == 400
 
 
+def test_app_startup_ensures_default_kb(client):
+    """启动 Web 服务时自动创建 default KB，老用户升级无需手动迁移。"""
+    from uni_rag.config import load_settings
+    from uni_rag.store.kb import KBStore
+
+    default = KBStore(load_settings().kb_db_path).get("default")
+    assert default is not None
+
+
 def test_kb_crud_via_api(client):
     """POST /api/kbs 创建，GET /api/kbs 列出，GET /api/kbs/{id} 详情，DELETE 删除。"""
     r = client.post("/api/kbs", json={"name": "CS101", "description": "课程笔记"})
@@ -184,6 +241,25 @@ def test_kb_crud_via_api(client):
     assert r.status_code == 404
 
 
+def test_kb_document_list_survives_page_refresh(client):
+    """已入库文档应能被重新列出，避免刷新页面后用户以为资料丢失。"""
+    r = client.post("/api/kbs", json={"name": "CS101", "description": "课程笔记"})
+    assert r.status_code == 200, r.text
+
+    pdf = Path(__file__).resolve().parents[1] / "fixtures" / "sample.pdf"
+    with open(pdf, "rb") as f:
+        r = client.post(
+            "/api/kbs/cs101/ingest",
+            files={"file": ("sample.pdf", f, "application/pdf")},
+        )
+    assert r.status_code == 200, r.text
+
+    r = client.get("/api/kbs/cs101/documents")
+    assert r.status_code == 200, r.text
+    documents = r.json()["documents"]
+    assert len(documents) == 1
+    assert documents[0]["filename"] == "sample.pdf"
+    assert documents[0]["chunks"] > 0
 def test_kb_ingest_uses_kb_scoped_collection(client, tmp_path, monkeypatch):
     """POST /api/kbs/{id}/ingest 入库到该 KB 的 collection。"""
     monkeypatch.setattr("uni_rag.llm.client.LLMClient.complete",
@@ -200,10 +276,17 @@ def test_kb_ingest_uses_kb_scoped_collection(client, tmp_path, monkeypatch):
     assert r.status_code == 200, r.text
     assert r.json()["chunks"] > 0
 
-    # 验证文件落到了 per-KB uploads
-    from uni_rag.config import load_settings
-    kb_uploads = load_settings().data_dir / "kbs" / "cs101" / "uploads"
-    assert (kb_uploads / "sample.pdf").exists()
+    # 验证 KB-scoped document chunks API 能支撑 citation side panel
+    r = client.get("/api/kbs/cs101/documents/sample.pdf/chunks")
+    assert r.status_code == 200, r.text
+    assert len(r.json()["chunks"]) > 0
+
+    r = client.post(
+        "/api/kbs/cs101/query",
+        json={"question": "what is supervised learning?"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["session_id"]
 
 
 def test_session_kb_binding_via_api(client):
