@@ -32,9 +32,11 @@ class BM25Index:
     @classmethod
     def load(cls, index_dir: Path) -> "BM25Index":
         idx = cls(index_dir)
-        with open(index_dir / "docs.pkl", "rb") as f:
-            idx.docs = pickle.load(f)
-        idx._build()
+        pkl = index_dir / "docs.pkl"
+        if pkl.exists():
+            with open(pkl, "rb") as f:
+                idx.docs = pickle.load(f)
+            idx._build()
         return idx
 
     def query(self, text: str, top_k: int = 5) -> list[dict]:
