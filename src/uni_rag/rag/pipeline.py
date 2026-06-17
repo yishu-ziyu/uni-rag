@@ -34,10 +34,13 @@ class RAGPipeline:
         # 1. 检索
         chunks = self.retriever.retrieve(question, top_k=top_k)
 
-        # 2. 加载历史
+        # 2. 加载历史（仅最近 N 条，防止长对话打爆 LLM context）
         history = []
         if session_id:
-            history = self.session_store.get(session_id)
+            settings = load_settings()
+            # 预留 1 个 slot 给本轮 user prompt，所以历史最多取 cap-1
+            cap = settings.max_session_messages
+            history = self.session_store.get_recent(session_id, max(cap - 1, 0))
 
         # 3. 构造 prompt（注入历史 + 当前问题）
         self.llm.clear_messages()
