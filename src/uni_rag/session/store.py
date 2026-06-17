@@ -52,3 +52,26 @@ class SessionStore:
     def clear(self, session_id: str) -> None:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+
+    def get_recent(self, session_id: str, limit: int) -> list[dict]:
+        """Return the last `limit` messages for a session, ordered by seq ASC.
+
+        If history has fewer than `limit` messages, returns all of them.
+        Uses seq DESC LIMIT N inside a subquery, then re-sorts ASC externally
+        so the LLM sees messages in chronological order.
+        """
+        if limit <= 0:
+            return []
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT role, content FROM (
+                    SELECT role, content, seq FROM messages
+                    WHERE session_id = ?
+                    ORDER BY seq DESC
+                    LIMIT ?
+                ) ORDER BY seq ASC
+                """,
+                (session_id, limit),
+            ).fetchall()
+        return [{"role": r[0], "content": r[1]} for r in rows]
