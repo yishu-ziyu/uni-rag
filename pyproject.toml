@@ -20,6 +20,7 @@ dependencies = [
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
     "python-dotenv>=1.0",
+    "weasyprint>=60.0",
 ]
 
 [project.optional-dependencies]
