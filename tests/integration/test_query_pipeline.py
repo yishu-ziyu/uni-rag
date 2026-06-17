@@ -24,3 +24,15 @@ def test_query_returns_answer_and_citations(pipeline, monkeypatch):
     assert "answer" in result
     assert "citations" in result
     assert len(result["citations"]) > 0
+
+
+def test_query_with_session_uses_history(pipeline, monkeypatch):
+    def fake_complete(self, system, max_tokens=1024):
+        return "ok"
+    monkeypatch.setattr("uni_rag.llm.client.LLMClient.complete", fake_complete)
+
+    sid = "test-session"
+    pipeline.query("first question", session_id=sid)
+    pipeline.query("follow up", session_id=sid)
+    history = pipeline.session_store.get(sid)
+    assert len(history) == 4  # 2 user + 2 assistant
