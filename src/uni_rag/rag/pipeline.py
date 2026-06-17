@@ -1,4 +1,4 @@
-"""RAG pipeline: query → retrieve → LLM → citations."""
+"""RAG pipeline: query → retrieve → LLM → citations. Supports per-KB isolation."""
 from __future__ import annotations
 import re
 from pathlib import Path
@@ -14,12 +14,18 @@ _CITE_RE = re.compile(r"\[([a-zA-Z0-9_]+:\d+)\]")
 
 
 class RAGPipeline:
-    def __init__(self):
+    """kb_id=None = legacy v0.2 mode (single global KB)."""
+
+    def __init__(self, kb_id: str | None = None):
         from uni_rag.session.store import SessionStore
-        self.ingest = IngestPipeline()
-        self.retriever = HybridRetriever()
+        self.kb_id = kb_id
+        self.ingest = IngestPipeline(kb_id=kb_id)
+        self.retriever = HybridRetriever(kb_id=kb_id)
         self.llm = LLMClient()
-        self.uploads_dir = load_settings().uploads_dir
+        # uploads_dir 用于回查原文做 span 定位
+        self.uploads_dir = (
+            self.ingest.uploads_dir  # IngestPipeline 已经按 kb_id 算好
+        )
         self.session_store = SessionStore(load_settings().sessions_db_path)
 
     def ingest_file(self, path: Path, original_name: str | None = None) -> dict:
@@ -31,18 +37,17 @@ class RAGPipeline:
         session_id: str | None = None,
         top_k: int = 5,
     ) -> dict:
-        # 1. 检索
+        # 1. 检索（KB-scoped）
         chunks = self.retriever.retrieve(question, top_k=top_k)
 
-        # 2. 加载历史（仅最近 N 条，防止长对话打爆 LLM context）
+        # 2. 加载历史
         history = []
         if session_id:
             settings = load_settings()
-            # 预留 1 个 slot 给本轮 user prompt，所以历史最多取 cap-1
             cap = settings.max_session_messages
             history = self.session_store.get_recent(session_id, max(cap - 1, 0))
 
-        # 3. 构造 prompt（注入历史 + 当前问题）
+        # 3. 构造 prompt
         self.llm.clear_messages()
         for m in history:
             if m["role"] == "user":
@@ -57,10 +62,8 @@ class RAGPipeline:
             self.llm.add_user_message(user_prompt)
             answer = self.llm.complete(SYSTEM_PROMPT)
 
-        # 4. 解析引用
         citations = self._extract_citations(answer, chunks)
 
-        # 5. 落历史
         if session_id:
             self.session_store.append(session_id, "user", question)
             self.session_store.append(session_id, "assistant", answer)
@@ -72,7 +75,6 @@ class RAGPipeline:
         }
 
     def _extract_citations(self, answer: str, chunks: list[dict]) -> list[dict]:
-        """Parse [chunk_id] markers and link to source documents."""
         chunk_map = {c["id"]: c for c in chunks}
         seen = set()
         out = []
@@ -87,14 +89,12 @@ class RAGPipeline:
                 src = meta.get("source", "")
                 section = meta.get("section", "")
                 cited_text = chunk.get("document") or ""
-                # 找原始文件，定位 span
                 src_path = self.uploads_dir / src
                 span = None
                 if src_path.exists():
                     full = src_path.read_text(errors="ignore")
                     _, span = locate_citation(full, cited_text)
             else:
-                # 引用了不在当前召回里的 chunk（LLM 幻觉或外部 id），仍记录
                 meta = {}
                 src = ""
                 section = ""

@@ -66,3 +66,33 @@ def test_long_session_uses_only_recent_history(pipeline, monkeypatch):
         )
     finally:
         settings.uni_rag_max_session_messages = original
+
+
+def test_multi_kb_isolation(tmp_path, monkeypatch):
+    """上传到 KB A 的内容，不应在 KB B 的检索中出现。"""
+    monkeypatch.setenv("UNI_RAG_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    from uni_rag.store.kb import KBStore
+    kb_store = KBStore(tmp_path / "kbs.db")
+    kb_store.create("alpha", "alpha 课", kb_id="alpha")
+    kb_store.create("beta", "beta 课", kb_id="beta")
+
+    # 准备两份 fixture
+    pdf = Path(__file__).resolve().parents[1] / "fixtures" / "sample.pdf"
+    other = tmp_path / "beta.pdf"
+    other.write_bytes(pdf.read_bytes())
+
+    # 入库到两个 KB
+    p_alpha = RAGPipeline(kb_id="alpha")
+    p_alpha.ingest_file(pdf, original_name="alpha.pdf")
+    p_beta = RAGPipeline(kb_id="beta")
+    p_beta.ingest_file(other, original_name="beta.pdf")
+
+    # alpha pipeline 检索，只能看到 alpha
+    a_results = p_alpha.retriever.retrieve("supervised learning", top_k=10)
+    assert all(r["metadata"].get("source") == "alpha.pdf" for r in a_results)
+
+    # beta pipeline 检索，只能看到 beta
+    b_results = p_beta.retriever.retrieve("supervised learning", top_k=10)
+    assert all(r["metadata"].get("source") == "beta.pdf" for r in b_results)
