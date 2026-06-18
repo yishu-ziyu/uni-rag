@@ -393,6 +393,7 @@ def query_kb(kb_id: str, req: QueryRequest):
     sid = req.session_id
     if not sid:
         sid = SessionStore(load_settings().sessions_db_path).create()
+    _kb_store().bind_session(sid, [kb_id])
     result = _query_pipeline(_pipeline_for_kb(kb_id), req.question, sid, req.top_k)
     return QueryResponse(
         answer=result["answer"],
@@ -426,6 +427,7 @@ def get_session_kbs(session_id: str):
 def _build_export_payload(
     question: str,
     answer: str,
+    kb_id: str | None = None,
 ) -> dict:
     """Build a {question, answer, citations} payload for the export modules.
 
@@ -434,7 +436,7 @@ def _build_export_payload(
     """
     payload: dict = {"question": question, "answer": answer, "citations": []}
     try:
-        pipeline = get_pipeline()
+        pipeline = _pipeline_for_kb(kb_id) if kb_id else get_pipeline()
         result = pipeline.query(question, session_id=None, top_k=5)
         payload["citations"] = result.get("citations", [])
     except Exception:
@@ -476,7 +478,9 @@ def export_message(session_id: str, message_index: int, format: str = "md"):
     if not question:
         question = "（无对应问题）"
 
-    payload = _build_export_payload(question, answer)
+    bound_kbs = KBStore(settings.kb_db_path).get_session_kbs(session_id)
+    kb_id = bound_kbs[0]["id"] if bound_kbs else None
+    payload = _build_export_payload(question, answer, kb_id=kb_id)
 
     if fmt == "md":
         md_text = render_markdown(payload)

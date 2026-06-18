@@ -302,6 +302,38 @@ def test_kb_ingest_uses_kb_scoped_collection(client, tmp_path, monkeypatch):
     assert r.json()["session_id"]
 
 
+def test_kb_query_export_uses_same_kb_citations(client, monkeypatch):
+    """KB 问答导出应沿用该 KB 的引用，而不是回落到 default KB。"""
+    import re
+
+    def fake_complete(self, system, max_tokens=1024):
+        prompt = self.messages[-1]["content"]
+        m = re.search(r"([a-f0-9]{16}:\d+)", prompt)
+        return f"answer [{m.group(1)}]" if m else "answer"
+
+    monkeypatch.setattr("uni_rag.llm.client.LLMClient.complete", fake_complete)
+    r = client.post("/api/kbs", json={"name": "CS101"})
+    assert r.status_code == 200, r.text
+
+    pdf = Path(__file__).resolve().parents[1] / "fixtures" / "sample.pdf"
+    with open(pdf, "rb") as f:
+        r = client.post(
+            "/api/kbs/cs101/ingest",
+            files={"file": ("sample.pdf", f, "application/pdf")},
+        )
+    assert r.status_code == 200, r.text
+
+    r = client.post("/api/kbs/cs101/query", json={"question": "what is supervised learning?"})
+    assert r.status_code == 200, r.text
+    sid = r.json()["session_id"]
+    assert r.json()["citations"]
+
+    r = client.get(f"/api/sessions/{sid}/messages/2/export?format=md")
+    assert r.status_code == 200, r.text
+    assert "**sample.pdf**" in r.text
+    assert "（无引用）" not in r.text
+
+
 def test_session_kb_binding_via_api(client):
     r = client.post("/api/kbs", json={"name": "A"})
     r = client.post("/api/kbs", json={"name": "B"})
