@@ -8,51 +8,6 @@
 </head>
 <body>
   <main class="shell">
-    <!-- Staggered Menu Toggle -->
-    <button id="menu-toggle" class="sm-toggle" aria-label="打开菜单" aria-expanded="false" aria-controls="sm-panel">
-      <span class="sm-toggle-textWrap" aria-hidden="true">
-        <span class="sm-toggle-textInner">
-          <span class="sm-toggle-line">Menu</span>
-          <span class="sm-toggle-line">Close</span>
-        </span>
-      </span>
-      <span class="sm-icon" aria-hidden="true">
-        <span class="sm-icon-line sm-icon-line-h" />
-        <span class="sm-icon-line sm-icon-line-v" />
-      </span>
-    </button>
-
-    <!-- Staggered Menu Overlay -->
-    <div id="sm-backdrop" class="sm-backdrop" aria-hidden="true"></div>
-    <div id="sm-overlay" class="sm-overlay" aria-hidden="true">
-      <div class="sm-prelayers" aria-hidden="true">
-        <div class="sm-prelayer" style="--layer-index:0" />
-        <div class="sm-prelayer" style="--layer-index:1" />
-        <div class="sm-prelayer" style="--layer-index:2" />
-      </div>
-      <aside id="sm-panel" class="sm-panel" aria-hidden="true">
-        <div class="sm-panel-inner">
-          <nav class="sm-nav" aria-label="主导航">
-            <a class="sm-nav-item" href="#upload" data-index="01">
-              <span class="sm-nav-label">上传资料</span>
-            </a>
-            <a class="sm-nav-item" href="#query" data-index="02">
-              <span class="sm-nav-label">提问</span>
-            </a>
-            <a class="sm-nav-item" href="#folders" data-index="03">
-              <span class="sm-nav-label">知识库</span>
-            </a>
-            <a class="sm-nav-item" href="#settings" data-index="04">
-              <span class="sm-nav-label">设置</span>
-            </a>
-          </nav>
-          <div class="sm-footer">
-            <span class="sm-footer-text">uni-rag v0.3 · 本地优先</span>
-          </div>
-        </div>
-      </aside>
-    </div>
-
     <section class="hero-card">
       <canvas id="hero-glitch" class="hero-glitch" aria-hidden="true"></canvas>
       <div class="hero-content">
@@ -115,9 +70,23 @@
         <div id="kb-section" class="rail-card">
           <div class="section-label">Knowledge base</div>
           <h2>当前知识库</h2>
-          <select id="kb-select">
+          <button type="button" id="kb-picker-trigger" class="kb-picker-trigger" aria-haspopup="true" aria-expanded="false">
+            <span class="kb-picker-label">选择知识库...</span>
+            <span class="kb-picker-arrow">▸</span>
+          </button>
+          <select id="kb-select" hidden aria-hidden="true">
             <option value="">加载中…</option>
           </select>
+          <div id="kb-picker-overlay" class="picker-overlay" aria-hidden="true">
+            <div class="picker-backdrop"></div>
+            <div class="picker-panel">
+              <div class="picker-header">
+                <span class="picker-title">选择知识库</span>
+                <button type="button" class="picker-close" aria-label="关闭">×</button>
+              </div>
+              <div class="picker-body" id="kb-picker-list"></div>
+            </div>
+          </div>
           <div class="kb-create-row">
             <input type="text" id="kb-new-name" placeholder="例如 CS101" />
             <button type="button" id="kb-create-btn">新建</button>

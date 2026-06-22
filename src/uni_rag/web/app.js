@@ -110,81 +110,149 @@ if (themeToggle) {
   });
 }
 
-// ── Staggered Menu ──────────────────────────────
+// ── KB Folder Picker ────────────────────────────
 (function () {
-  const overlay = document.getElementById('sm-overlay');
-  const backdrop = document.getElementById('sm-backdrop');
-  const toggle = document.getElementById('menu-toggle');
-  const textInner = toggle ? toggle.querySelector('.sm-toggle-textInner') : null;
+  const trigger = document.getElementById('kb-picker-trigger');
+  const overlay = document.getElementById('kb-picker-overlay');
+  const pickerList = document.getElementById('kb-picker-list');
+  const pickerClose = overlay ? overlay.querySelector('.picker-close') : null;
+  const pickerLabel = trigger ? trigger.querySelector('.kb-picker-label') : null;
   let isOpen = false;
-  let busy = false;
 
-  if (!overlay || !toggle) return;
+  if (!trigger || !overlay) return;
 
-  function openMenu() {
-    if (busy) return;
-    busy = true;
+  function openPicker() {
     isOpen = true;
     overlay.setAttribute('data-open', '');
     overlay.setAttribute('aria-hidden', 'false');
-    if (backdrop) backdrop.setAttribute('data-open', '');
-    toggle.setAttribute('aria-expanded', 'true');
-    toggle.setAttribute('aria-label', '关闭菜单');
+    trigger.setAttribute('aria-expanded', 'true');
     document.body.style.overflow = 'hidden';
-    setTimeout(() => { busy = false; }, 600);
+    renderKbList();
   }
 
-  function closeMenu() {
-    if (busy) return;
-    busy = true;
+  function closePicker() {
     isOpen = false;
     overlay.removeAttribute('data-open');
     overlay.setAttribute('aria-hidden', 'true');
-    if (backdrop) backdrop.removeAttribute('data-open');
-    toggle.setAttribute('aria-expanded', 'false');
-    toggle.setAttribute('aria-label', '打开菜单');
+    trigger.setAttribute('aria-expanded', 'false');
     document.body.style.overflow = '';
-    setTimeout(() => { busy = false; }, 500);
   }
 
-  function toggleMenu() {
-    isOpen ? closeMenu() : openMenu();
-  }
+  function renderKbList() {
+    if (!pickerList) return;
+    pickerList.innerHTML = '';
 
-  toggle.addEventListener('click', toggleMenu);
+    // Fetch current KBs
+    fetch('/api/kbs')
+      .then(r => r.ok ? r.json() : { kbs: [] })
+      .then(data => {
+        const kbs = data.kbs || [];
 
-  // Close on backdrop click
-  if (backdrop) {
-    backdrop.addEventListener('click', closeMenu);
-  }
-
-  // Close on Escape
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && isOpen) closeMenu();
-  });
-
-  // Navigation item clicks
-  const navItems = overlay.querySelectorAll('.sm-nav-item');
-  navItems.forEach(item => {
-    item.addEventListener('click', (e) => {
-      e.preventDefault();
-      const targetId = item.getAttribute('href')?.replace('#', '');
-      closeMenu();
-      // Scroll to target section after menu closes
-      setTimeout(() => {
-        const target = document.getElementById(targetId);
-        if (target) {
-          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          // Highlight the target section briefly
-          target.style.transition = 'box-shadow 0.5s ease';
-          target.style.boxShadow = '0 0 0 4px var(--accent-glow)';
-          setTimeout(() => {
-            target.style.boxShadow = '';
-          }, 1500);
+        if (kbs.length === 0) {
+          pickerList.innerHTML = '<div class="picker-empty">还没有知识库，先创建一个吧</div>';
+          return;
         }
-      }, 400);
-    });
+
+        // Load document counts for each KB
+        const kbWithDocs = kbs.map(kb => {
+          return fetch(`/api/kbs/${encodeURIComponent(kb.id)}/documents`)
+            .then(r => r.ok ? r.json() : { documents: [] })
+            .then(docData => ({
+              ...kb,
+              docCount: docData.documents?.length || 0,
+              chunkCount: docData.documents?.reduce((s, d) => s + d.chunks, 0) || 0,
+            }))
+            .catch(() => ({ ...kb, docCount: 0, chunkCount: 0 }));
+        });
+
+        Promise.all(kbWithDocs).then(kbsWithInfo => {
+          pickerList.innerHTML = '';
+
+          // Add "all" option
+          const allFolder = document.createElement('div');
+          allFolder.className = 'picker-folder' + (!currentKbId ? ' active' : '');
+          allFolder.innerHTML = `
+            <div class="picker-folder-name">全部文件</div>
+            <div class="picker-folder-meta">${kbsWithInfo.reduce((s, k) => s + k.docCount, 0)} 文件 · ${kbsWithInfo.reduce((s, k) => s + k.chunkCount, 0)} 块</div>
+          `;
+          allFolder.addEventListener('click', () => {
+            currentKbId = '';
+            kbSelect.value = '';
+            resetWorkspaceForKb();
+            loadDocumentsForCurrentKb();
+            closePicker();
+            updateKbPickerLabel();
+          });
+          pickerList.appendChild(allFolder);
+
+          // Add each KB as a folder
+          kbsWithInfo.forEach(kb => {
+            const folder = document.createElement('div');
+            folder.className = 'picker-folder' + (kb.id === currentKbId ? ' active' : '');
+            folder.innerHTML = `
+              <div class="picker-folder-name">${escapeHtml(kb.name)}</div>
+              <div class="picker-folder-meta">${kb.docCount} 文件 · ${kb.chunkCount} 块</div>
+            `;
+            folder.addEventListener('click', () => {
+              currentKbId = kb.id;
+              kbSelect.value = kb.id;
+              resetWorkspaceForKb();
+              loadDocumentsForCurrentKb();
+              closePicker();
+              updateKbPickerLabel();
+            });
+            pickerList.appendChild(folder);
+          });
+        });
+      })
+      .catch(() => {
+        pickerList.innerHTML = '<div class="picker-empty">加载失败，请重试</div>';
+      });
+  }
+
+  function updateKbPickerLabel() {
+    if (!pickerLabel) return;
+    if (currentKbId) {
+      const kb = kbsDataCache[currentKbId];
+      pickerLabel.textContent = kb ? kb.name : '选择知识库...';
+    } else {
+      pickerLabel.textContent = '全部文件';
+    }
+  }
+
+  // Cache KB list for label updates
+  let kbsDataCache = {};
+  function refreshKbCache() {
+    fetch('/api/kbs')
+      .then(r => r.ok ? r.json() : { kbs: [] })
+      .then(data => {
+        kbsDataCache = {};
+        (data.kbs || []).forEach(kb => { kbsDataCache[kb.id] = kb; });
+        updateKbPickerLabel();
+      });
+  }
+
+  trigger.addEventListener('click', () => {
+    isOpen ? closePicker() : openPicker();
   });
+
+  if (pickerClose) {
+    pickerClose.addEventListener('click', closePicker);
+  }
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay || e.target.classList.contains('picker-backdrop')) {
+      closePicker();
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && isOpen) closePicker();
+  });
+
+  // Refresh cache periodically
+  refreshKbCache();
+  setInterval(refreshKbCache, 5000);
 })();
 
 // ── LetterGlitch (Hero background) ─────────────

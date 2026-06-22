@@ -1497,3 +1497,191 @@ select:disabled {
   }
 }
 
+/* ── KB Folder Picker ──────────────────────────── */
+.kb-picker-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-top: 8px;
+  background: var(--panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease), transform 0.2s var(--ease);
+}
+
+.kb-picker-trigger:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+  transform: translateY(-1px);
+}
+
+.kb-picker-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.kb-picker-label {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-picker-arrow {
+  font-size: 0.7rem;
+  color: var(--muted);
+  transition: transform 0.3s var(--ease);
+}
+
+.kb-picker-trigger[aria-expanded="true"] .kb-picker-arrow {
+  transform: rotate(90deg);
+}
+
+.picker-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.picker-overlay[data-open] {
+  pointer-events: auto;
+  visibility: visible;
+}
+
+.picker-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.picker-overlay[data-open] .picker-backdrop {
+  opacity: 1;
+}
+
+.picker-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: min(38vw, 400px);
+  height: 100%;
+  background: var(--panel-solid);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  transform: translateX(105%);
+  transition: transform 0.5s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.picker-overlay[data-open] .picker-panel {
+  transform: translateX(0);
+}
+
+.picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.2rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.picker-title {
+  font-family: var(--font-ui);
+  font-size: 1rem;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.picker-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: var(--muted);
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.picker-close:hover {
+  color: var(--accent);
+}
+
+.picker-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.picker-folder {
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s var(--ease);
+  animation: pickerSlideIn 0.3s var(--ease) both;
+}
+
+.picker-folder:nth-child(1) { animation-delay: 0.05s; }
+.picker-folder:nth-child(2) { animation-delay: 0.1s; }
+.picker-folder:nth-child(3) { animation-delay: 0.15s; }
+.picker-folder:nth-child(4) { animation-delay: 0.2s; }
+.picker-folder:nth-child(5) { animation-delay: 0.25s; }
+
+@keyframes pickerSlideIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.picker-folder:hover {
+  border-color: var(--accent);
+  box-shadow: 0 4px 16px var(--accent-glow);
+  transform: translateX(4px);
+}
+
+.picker-folder.active {
+  border-color: var(--accent);
+  background: linear-gradient(135deg, var(--accent-dark), #3b1f8e);
+  color: white;
+}
+
+.picker-folder-name {
+  font-family: var(--font-ui);
+  font-size: 0.92rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.picker-folder-meta {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  opacity: 0.7;
+}
+
+.picker-empty {
+  padding: 2rem;
+  text-align: center;
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: 0.88rem;
+}
+
