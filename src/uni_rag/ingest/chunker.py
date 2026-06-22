@@ -11,6 +11,7 @@ class Chunk:
     section_title: str | None
     start_offset: int  # 相对于原始 text
     end_offset: int
+    page_number: int | None = None  # PDF 页码（1-based），非 PDF 为 None
 
 
 _HEADER_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
@@ -57,13 +58,29 @@ def chunk_document(
     text: str,
     source_id: str,
     max_chars: int = 1000,
+    pages: list[tuple[int, str]] | None = None,
 ) -> list[Chunk]:
-    """按 header 切，再按 max_chars 切长段。"""
+    """按 header 切，再按 max_chars 切长段。
+
+    Args:
+        text: 完整文本
+        source_id: 文档标识
+        max_chars: 每块最大字符数
+        pages: [(page_no, text), ...] 可选，用于给 PDF chunk 标页码
+    """
     sections = _split_by_headers(text)
     chunks = []
     cursor = 0
+
+    # 构建 page offset 索引：(page_no, start_offset, end_offset)
+    page_index = []
+    if pages:
+        offset = 0
+        for page_no, page_text in pages:
+            page_index.append((page_no, offset, offset + len(page_text)))
+            offset += len(page_text) + 2  # +2 for "\n\n" join
+
     for title, body in sections:
-        # 找 body 在原文的位置
         idx = text.find(body, cursor)
         if idx < 0:
             idx = cursor
@@ -72,11 +89,22 @@ def chunk_document(
             piece_start = text.find(piece, idx)
             if piece_start < 0:
                 piece_start = idx
+            piece_end = piece_start + len(piece)
+
+            # 查找页码
+            page_no = None
+            if page_index:
+                for pno, pstart, pend in page_index:
+                    if pstart <= piece_start < pend:
+                        page_no = pno
+                        break
+
             chunks.append(Chunk(
                 text=piece,
                 source_id=source_id,
                 section_title=title,
                 start_offset=piece_start,
-                end_offset=piece_start + len(piece),
+                end_offset=piece_end,
+                page_number=page_no,
             ))
     return chunks

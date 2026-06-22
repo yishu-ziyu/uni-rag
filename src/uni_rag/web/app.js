@@ -274,6 +274,7 @@ async function submitUrl() {
       hidden: false,
     });
     updateQueryAvailability();
+    showSuggestedQuestions();
     urlInput.value = '';
   } catch (err) {
     setIngestStatus({
@@ -323,6 +324,7 @@ async function uploadFile(file) {
       hidden: false,
     });
     updateQueryAvailability();
+    showSuggestedQuestions();
   } catch (err) {
     setIngestStatus({
       step: '入库失败',
@@ -334,6 +336,40 @@ async function uploadFile(file) {
   } finally {
     setBusy(false);
   }
+}
+
+const SUGGESTED_QUESTIONS = [
+  '这份材料的核心观点是什么？',
+  '有哪些关键概念需要掌握？',
+  '能举几个例子说明吗？',
+];
+
+function showSuggestedQuestions() {
+  const existing = document.getElementById('suggested-questions');
+  if (existing) existing.remove();
+
+  const container = document.createElement('div');
+  container.id = 'suggested-questions';
+  container.className = 'suggested-questions';
+  const label = document.createElement('div');
+  label.className = 'suggested-label';
+  label.textContent = '试试问这些问题：';
+  container.appendChild(label);
+
+  SUGGESTED_QUESTIONS.forEach((q) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'suggest-chip';
+    btn.textContent = q;
+    btn.addEventListener('click', () => {
+      questionInput.value = q;
+      form.dispatchEvent(new Event('submit'));
+    });
+    container.appendChild(btn);
+  });
+
+  chat.appendChild(container);
+  chat.scrollTop = chat.scrollHeight;
 }
 
 async function waitForIngestJob(statusUrl) {
@@ -464,7 +500,13 @@ function renderMessage(div, role, text, citations = [], messageIndex = null) {
       const chip = document.createElement('button');
       chip.type = 'button';
       chip.className = 'cite-chip';
-      chip.textContent = `[${i + 1}] ${c.source}${c.section ? ' · ' + c.section : ''}`;
+      let label = `[${i + 1}] ${c.source}`;
+      if (c.section) {
+        label += ` · ${c.section}`;
+      } else if (c.page > 0) {
+        label += ` · p.${c.page}`;
+      }
+      chip.textContent = label;
       chip.addEventListener('click', () => openCitation(c.source, c.span, c.text, currentKbId));
       cits.appendChild(chip);
     });

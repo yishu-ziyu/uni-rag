@@ -73,7 +73,7 @@ class IngestPipeline:
         source_id = self._source_id(dest)
 
         emit("chunking", 40, "正在按章节和段落切分")
-        chunks = chunk_document(doc.text, source_id=source_id)
+        chunks = chunk_document(doc.text, source_id=source_id, pages=getattr(doc, 'pages', None))
         if not chunks:
             emit("done", 100, "未解析出可用文本", chunks=0, source_id=source_id)
             return {"source_id": source_id, "chunks": 0, "format": doc.format}
@@ -92,6 +92,7 @@ class IngestPipeline:
                     "source": save_name,
                     "format": doc.format,
                     "section": c.section_title or "",
+                    "page": c.page_number or 0,
                     "start": c.start_offset,
                     "end": c.end_offset,
                 },
@@ -102,7 +103,7 @@ class IngestPipeline:
             self.bm25.add(
                 chunk_id=f"{source_id}:{c.start_offset}",
                 text=c.text,
-                metadata={"source": save_name, "section": c.section_title or ""},
+                metadata={"source": save_name, "section": c.section_title or "", "page": c.page_number or 0},
             )
         self.bm25.save()
         emit("done", 100, "入库完成", chunks=len(chunks), source_id=source_id)
@@ -129,7 +130,7 @@ class IngestPipeline:
         source_id = self._source_id_from_url(url, doc.text)
 
         emit("chunking", 40, "正在按章节和段落切分")
-        chunks = chunk_document(doc.text, source_id=source_id)
+        chunks = chunk_document(doc.text, source_id=source_id, pages=getattr(doc, 'pages', None))
         if not chunks:
             emit("done", 100, "未解析出可用文本", chunks=0, source_id=source_id)
             return {"source_id": source_id, "chunks": 0, "format": doc.format}
@@ -152,6 +153,7 @@ class IngestPipeline:
                     "source_url": extraction.source_url,
                     "content_type": extraction.content_type,
                     "section": c.section_title or "",
+                    "page": c.page_number or 0,
                     "start": c.start_offset,
                     "end": c.end_offset,
                 },
@@ -165,6 +167,7 @@ class IngestPipeline:
                 metadata={
                     "source": save_name,
                     "section": c.section_title or "",
+                    "page": c.page_number or 0,
                     "platform": extraction.platform,
                     "source_url": extraction.source_url,
                 },

@@ -14,6 +14,7 @@ class Citation(BaseModel):
     chunk_id: str
     source: str
     section: str
+    page: int = 0
     text: str
     span: tuple[int, int] | None = None
 

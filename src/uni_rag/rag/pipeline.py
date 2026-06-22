@@ -94,6 +94,7 @@ class RAGPipeline:
                 meta = chunk.get("metadata", {})
                 src = meta.get("source", "")
                 section = meta.get("section", "")
+                page = meta.get("page", 0)
                 cited_text = chunk.get("document") or ""
                 src_path = self.uploads_dir / src
                 span = None
@@ -104,12 +105,14 @@ class RAGPipeline:
                 meta = {}
                 src = ""
                 section = ""
+                page = 0
                 cited_text = ""
                 span = None
             out.append({
                 "chunk_id": cid,
                 "source": src,
                 "section": section,
+                "page": page,
                 "text": cited_text,
                 "span": span,
             })
