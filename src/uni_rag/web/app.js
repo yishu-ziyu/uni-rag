@@ -160,6 +160,67 @@ kbCreateBtn.addEventListener('click', async () => {
   await loadKbs();
 });
 
+const urlInput = document.getElementById('url-input');
+const urlSubmitBtn = document.getElementById('url-submit-btn');
+
+if (urlSubmitBtn) {
+  urlSubmitBtn.addEventListener('click', submitUrl);
+  urlInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); submitUrl(); }
+  });
+}
+
+async function submitUrl() {
+  const url = urlInput.value.trim();
+  if (!url) return;
+
+  setBusy(true);
+  setIngestStatus({
+    step: '提取链接内容',
+    percent: 3,
+    message: '正在识别平台并提取内容，请稍候...',
+    hidden: false,
+  });
+
+  try {
+    const r = await fetch('/api/ingest/url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, kb_id: currentKbId || undefined }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || '提交失败');
+
+    const result = await waitForIngestJob(data.status_url);
+    const title = result.result?.filename || url;
+    sources.set(title, result.result.source_id);
+    indexedFileCount += 1;
+    const emptyState = document.getElementById('empty-state');
+    if (emptyState) emptyState.remove();
+    const li = document.createElement('li');
+    li.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${result.result.chunks} 块 · ${escapeHtml(currentKbId || 'default')}</span>`;
+    fileList.appendChild(li);
+    setIngestStatus({
+      step: '入库完成',
+      percent: 100,
+      message: `已解析 ${result.result.chunks} 个文本块，可以开始提问。`,
+      hidden: false,
+    });
+    updateQueryAvailability();
+    urlInput.value = '';
+  } catch (err) {
+    setIngestStatus({
+      step: '提取失败',
+      percent: 100,
+      message: err.message || '链接提取失败，请检查链接是否有效后重试。',
+      hidden: false,
+      error: true,
+    });
+  } finally {
+    setBusy(false);
+  }
+}
+
 // Upload
 async function uploadFile(file) {
   setBusy(true);

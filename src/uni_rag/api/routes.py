@@ -6,6 +6,7 @@ import threading
 import uuid
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import Response
+from pydantic import BaseModel
 from uni_rag.rag.pipeline import RAGPipeline
 from uni_rag.session.store import SessionStore
 from uni_rag.store.vector import VectorStore
@@ -20,6 +21,7 @@ from uni_rag.api.schemas import (
     SessionKbBindRequest, SessionKbListResponse, DeleteResponse,
 )
 from uni_rag.export.md_exporter import render_markdown
+from uni_rag.ingest.link_extractors import LinkExtractionError
 
 
 router = APIRouter(prefix="/api")
@@ -99,6 +101,86 @@ def _run_ingest_job(
         tmp_path.unlink(missing_ok=True)
 
 
+def _run_url_ingest_job(
+    job_id: str,
+    url: str,
+    kb_id: str | None,
+) -> None:
+    def on_progress(event: dict) -> None:
+        _set_ingest_job(
+            job_id,
+            status="running",
+            step=event.get("step", "running"),
+            percent=int(event.get("percent", 0)),
+            message=str(event.get("message", "正在处理")),
+        )
+
+    try:
+        _set_ingest_job(
+            job_id,
+            status="running",
+            step="extracting",
+            percent=5,
+            message="正在识别链接并提取内容",
+        )
+        pipeline = get_pipeline() if kb_id is None else _pipeline_for_kb(kb_id)
+        result = pipeline.ingest_url(url, progress=on_progress)
+        response = IngestResponse(
+            source_id=result["source_id"],
+            chunks=result["chunks"],
+            format=result["format"],
+            filename=result.get("filename", url),
+        )
+        _set_ingest_job(
+            job_id,
+            status="completed",
+            step="done",
+            percent=100,
+            message="入库完成，可以开始提问。",
+            result=response.model_dump(),
+        )
+    except LinkExtractionError as e:
+        _set_ingest_job(
+            job_id,
+            status="failed",
+            step="failed",
+            percent=100,
+            message=e.hint,
+            error=str(e),
+        )
+    except Exception as e:
+        _set_ingest_job(
+            job_id,
+            status="failed",
+            step="failed",
+            percent=100,
+            message="入库失败，请检查链接是否有效后重试。",
+            error=str(e),
+        )
+
+
+def _start_url_ingest_job(url: str, kb_id: str | None = None) -> IngestJobStartResponse:
+    job_id = uuid.uuid4().hex
+    _set_ingest_job(
+        job_id,
+        job_id=job_id,
+        status="queued",
+        step="queued",
+        percent=1,
+        message="已收到链接，准备开始提取。",
+        filename=url,
+        result=None,
+        error=None,
+    )
+    worker = threading.Thread(
+        target=_run_url_ingest_job,
+        args=(job_id, url, kb_id),
+        daemon=True,
+    )
+    worker.start()
+    return IngestJobStartResponse(job_id=job_id, status_url=f"/api/ingest/jobs/{job_id}")
+
+
 def _start_ingest_job(file: UploadFile, kb_id: str | None = None) -> IngestJobStartResponse:
     if not file.filename:
         raise HTTPException(400, "No filename")
@@ -166,6 +248,21 @@ async def ingest(file: UploadFile = File(...)):
         format=result["format"],
         filename=file.filename,
     )
+
+
+class LinkIngestRequest(BaseModel):
+    url: str
+    kb_id: str | None = None
+
+
+@router.post("/ingest/url", response_model=IngestJobStartResponse)
+def ingest_url(req: LinkIngestRequest):
+    if not req.url or not req.url.strip():
+        raise HTTPException(400, "URL 不能为空")
+    url = req.url.strip()
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(400, "请输入以 http:// 或 https:// 开头的有效链接")
+    return _start_url_ingest_job(url, kb_id=req.kb_id)
 
 
 def _query_pipeline(pipeline: RAGPipeline, question: str, session_id: str, top_k: int) -> dict:

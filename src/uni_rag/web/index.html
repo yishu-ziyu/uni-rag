@@ -19,6 +19,16 @@
         <section id="upload-section" class="panel-block">
           <div class="section-label">01 · 添加资料</div>
           <h2>先把材料放进当前知识库</h2>
+
+          <div id="url-section" style="margin-bottom: 24px;">
+            <p class="drop-title">粘贴链接，一键提取内容</p>
+            <p class="drop-subtitle">支持网页文章、YouTube、B站视频、微信公众号等</p>
+            <div style="display: flex; gap: 8px; margin-top: 8px;">
+              <input type="url" id="url-input" placeholder="https://..." style="flex: 1; padding: 0.78rem 0.9rem; border: 1px solid var(--border); background: var(--panel); color: var(--ink); font: inherit;" />
+              <button type="button" id="url-submit-btn">提取内容</button>
+            </div>
+          </div>
+
           <div id="dropzone">
             <p class="drop-title">拖拽 PDF / Markdown / DOCX 到这里</p>
             <p class="drop-subtitle">或者选择本地文件，上传后会自动切块并建立索引。</p>

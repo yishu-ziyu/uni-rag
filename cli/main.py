@@ -36,6 +36,24 @@ def ingest(file: Path = typer.Argument(..., exists=True)):
     ))
 
 
+@app.command("ingest-url")
+def ingest_url(url: str = typer.Argument(..., help="要提取内容的链接")):
+    """从链接提取内容并入库。"""
+    pipeline = RAGPipeline()
+    try:
+        result = pipeline.ingest_url(url)
+    except Exception as e:
+        console.print(f"[red]提取失败: {e}[/red]")
+        raise typer.Exit(1) from e
+    console.print(Panel(
+        f"链接: [bold]{url}[/bold]\n"
+        f"格式: {result['format']}\n"
+        f"chunks: {result['chunks']}\n"
+        f"ID: {result['source_id']}",
+        title="✓ 已入库",
+    ))
+
+
 @app.command()
 def ask(
     question: str = typer.Argument(...),
@@ -112,6 +130,31 @@ def ingest_kb(
     console.print(Panel(
         f"KB: [cyan]{kb_id}[/cyan]\n"
         f"文件: [bold]{file.name}[/bold]\n"
+        f"格式: {result['format']}\n"
+        f"chunks: {result['chunks']}\n"
+        f"ID: {result['source_id']}",
+        title="✓ 已入库",
+    ))
+
+
+@kb_app.command("ingest-url")
+def ingest_url_kb(
+    kb_id: str = typer.Argument(..., help="目标知识库 ID"),
+    url: str = typer.Argument(..., help="要提取内容的链接"),
+):
+    """从链接提取内容并入库到指定知识库。"""
+    if _kb_store().get(kb_id) is None:
+        console.print(f"[red]知识库不存在: {kb_id}[/red]")
+        raise typer.Exit(1)
+    pipeline = RAGPipeline(kb_id=kb_id)
+    try:
+        result = pipeline.ingest_url(url)
+    except Exception as e:
+        console.print(f"[red]提取失败: {e}[/red]")
+        raise typer.Exit(1) from e
+    console.print(Panel(
+        f"KB: [cyan]{kb_id}[/cyan]\n"
+        f"链接: [bold]{url}[/bold]\n"
         f"格式: {result['format']}\n"
         f"chunks: {result['chunks']}\n"
         f"ID: {result['source_id']}",

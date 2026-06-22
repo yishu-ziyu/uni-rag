@@ -349,3 +349,46 @@ def test_session_kb_binding_via_api(client):
     assert r.status_code == 200
     bound = r.json()["kbs"]
     assert {k["id"] for k in bound} == {"a", "b"}
+
+
+def test_ingest_url_job_reports_progress(client, monkeypatch):
+    """POST /api/ingest/url 返回 job_id，轮询到 completed。"""
+    from uni_rag.ingest.link_extractors import LinkExtractionResult
+    fake_result = LinkExtractionResult(
+        text="# Hello\n\nThis is extracted content from a webpage.",
+        title="Hello",
+        source_url="https://example.com/article",
+        platform="web",
+        content_type="article",
+    )
+    # pipeline.py uses module-level access (link_extractors.extract),
+    # so patching the function on the module works correctly.
+    import uni_rag.ingest.link_extractors as _link_mod
+    monkeypatch.setattr(_link_mod, "extract", lambda url: fake_result)
+
+    r = client.post("/api/ingest/url", json={"url": "https://example.com/article"})
+    assert r.status_code == 200, r.text
+    status_url = r.json()["status_url"]
+
+    import time
+    for _ in range(180):
+        time.sleep(0.2)
+        r = client.get(status_url)
+        assert r.status_code == 200, r.text
+        data = r.json()
+        if data["status"] == "completed":
+            assert data["result"]["chunks"] > 0
+            assert data["result"]["format"] == "url"
+            return
+        if data["status"] == "failed":
+            raise AssertionError(f"job failed: {data}")
+    raise AssertionError("ingest url job did not complete in time")
+
+
+def test_ingest_url_invalid_url_returns_400(client):
+    """空 URL 或非 http URL 应返回 400。"""
+    r = client.post("/api/ingest/url", json={"url": ""})
+    assert r.status_code == 400
+
+    r = client.post("/api/ingest/url", json={"url": "ftp://example.com"})
+    assert r.status_code == 400

@@ -1,0 +1,8 @@
+task_id: uni-rag-ship-tasks-uni-rag-link-extractor-design-plan-spec-m
+source_type: user_request
+source_ref: conversation
+received_at: "2026-06-22T07:30:27Z"
+input_artifacts:
+  - path: input/requirement.md
+    type: markdown
+    role: raw_requirement

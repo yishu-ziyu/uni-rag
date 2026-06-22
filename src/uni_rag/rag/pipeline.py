@@ -31,6 +31,9 @@ class RAGPipeline:
     def ingest_file(self, path: Path, original_name: str | None = None, progress=None) -> dict:
         return self.ingest.ingest_file(path, original_name=original_name, progress=progress)
 
+    def ingest_url(self, url: str, original_name: str | None = None, progress=None) -> dict:
+        return self.ingest.ingest_url(url, original_name=original_name, progress=progress)
+
     def query(
         self,
         question: str,
