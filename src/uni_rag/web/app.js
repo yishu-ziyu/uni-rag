@@ -88,6 +88,28 @@ if (settingsSave) settingsSave.addEventListener('click', () => {
   closeSettings();
 });
 
+// ── Theme toggle ────────────────────────────────
+const THEME_KEY = 'uni-rag-theme';
+
+function getTheme() {
+  return localStorage.getItem(THEME_KEY) || 'light';
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem(THEME_KEY, theme);
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.textContent = theme === 'dark' ? '☀ 亮色' : '◐ 暗色';
+}
+
+const themeToggle = document.getElementById('theme-toggle');
+if (themeToggle) {
+  applyTheme(getTheme());
+  themeToggle.addEventListener('click', () => {
+    applyTheme(getTheme() === 'dark' ? 'light' : 'dark');
+  });
+}
+
 async function loadKbs() {
   kbSelect.innerHTML = '';
   try {
