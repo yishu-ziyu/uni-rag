@@ -8,6 +8,50 @@
 </head>
 <body>
   <main class="shell">
+    <!-- Staggered Menu Toggle -->
+    <button id="menu-toggle" class="sm-toggle" aria-label="打开菜单" aria-expanded="false" aria-controls="sm-panel">
+      <span class="sm-toggle-textWrap" aria-hidden="true">
+        <span class="sm-toggle-textInner">
+          <span class="sm-toggle-line">Menu</span>
+          <span class="sm-toggle-line">Close</span>
+        </span>
+      </span>
+      <span class="sm-icon" aria-hidden="true">
+        <span class="sm-icon-line sm-icon-line-h" />
+        <span class="sm-icon-line sm-icon-line-v" />
+      </span>
+    </button>
+
+    <!-- Staggered Menu Overlay -->
+    <div id="sm-overlay" class="sm-overlay" aria-hidden="true">
+      <div class="sm-prelayers" aria-hidden="true">
+        <div class="sm-prelayer" style="--layer-index:0" />
+        <div class="sm-prelayer" style="--layer-index:1" />
+        <div class="sm-prelayer" style="--layer-index:2" />
+      </div>
+      <aside id="sm-panel" class="sm-panel" aria-hidden="true">
+        <div class="sm-panel-inner">
+          <nav class="sm-nav" aria-label="主导航">
+            <a class="sm-nav-item" href="#upload" data-index="01">
+              <span class="sm-nav-label">上传资料</span>
+            </a>
+            <a class="sm-nav-item" href="#query" data-index="02">
+              <span class="sm-nav-label">提问</span>
+            </a>
+            <a class="sm-nav-item" href="#folders" data-index="03">
+              <span class="sm-nav-label">知识库</span>
+            </a>
+            <a class="sm-nav-item" href="#settings" data-index="04">
+              <span class="sm-nav-label">设置</span>
+            </a>
+          </nav>
+          <div class="sm-footer">
+            <span class="sm-footer-text">uni-rag v0.3 · 本地优先</span>
+          </div>
+        </div>
+      </aside>
+    </div>
+
     <section class="hero-card">
       <div class="hero-kicker">Local study desk</div>
       <h1>uni-rag</h1>

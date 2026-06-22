@@ -110,6 +110,80 @@ if (themeToggle) {
   });
 }
 
+// ── Staggered Menu ──────────────────────────────
+(function () {
+  const overlay = document.getElementById('sm-overlay');
+  const toggle = document.getElementById('menu-toggle');
+  const textInner = toggle ? toggle.querySelector('.sm-toggle-textInner') : null;
+  let isOpen = false;
+  let busy = false;
+
+  if (!overlay || !toggle) return;
+
+  function openMenu() {
+    if (busy) return;
+    busy = true;
+    isOpen = true;
+    overlay.setAttribute('data-open', '');
+    overlay.setAttribute('aria-hidden', 'false');
+    toggle.setAttribute('aria-expanded', 'true');
+    toggle.setAttribute('aria-label', '关闭菜单');
+    document.body.style.overflow = 'hidden';
+    setTimeout(() => { busy = false; }, 600);
+  }
+
+  function closeMenu() {
+    if (busy) return;
+    busy = true;
+    isOpen = false;
+    overlay.removeAttribute('data-open');
+    overlay.setAttribute('aria-hidden', 'true');
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-label', '打开菜单');
+    document.body.style.overflow = '';
+    setTimeout(() => { busy = false; }, 500);
+  }
+
+  function toggleMenu() {
+    isOpen ? closeMenu() : openMenu();
+  }
+
+  toggle.addEventListener('click', toggleMenu);
+
+  // Close on backdrop click
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeMenu();
+  });
+
+  // Close on Escape
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && isOpen) closeMenu();
+  });
+
+  // Navigation item clicks
+  const navItems = overlay.querySelectorAll('.sm-nav-item');
+  navItems.forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.preventDefault();
+      const targetId = item.getAttribute('href')?.replace('#', '');
+      closeMenu();
+      // Scroll to target section after menu closes
+      setTimeout(() => {
+        const target = document.getElementById(targetId);
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          // Highlight the target section briefly
+          target.style.transition = 'box-shadow 0.5s ease';
+          target.style.boxShadow = '0 0 0 4px var(--accent-glow)';
+          setTimeout(() => {
+            target.style.boxShadow = '';
+          }, 1500);
+        }
+      }, 400);
+    });
+  });
+})();
+
 // ── Folder Component ────────────────────────────
 const FOLDER_COLORS = [
   '#6366f1', '#8b5cf6', '#a855f7', '#d946ef',
