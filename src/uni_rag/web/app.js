@@ -187,6 +187,120 @@ if (themeToggle) {
   });
 })();
 
+// ── LetterGlitch (Hero background) ─────────────
+(function () {
+  const canvas = document.getElementById('hero-glitch');
+  if (!canvas) return;
+
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+
+  const glitchColors = ['#2b4539', '#61dca3', '#61b3dc'];
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const fontSize = 14;
+  const charWidth = 9;
+  const charHeight = 18;
+  const glitchSpeed = 60;
+
+  let columns = 0;
+  let rows = 0;
+  let letters = [];
+  let lastGlitch = 0;
+  let animId = null;
+
+  function randChar() {
+    return chars[Math.floor(Math.random() * chars.length)];
+  }
+
+  function randColor() {
+    return glitchColors[Math.floor(Math.random() * glitchColors.length)];
+  }
+
+  function hexToRgb(hex) {
+    const m = hex.replace('#', '').match(/[a-f\d]{2}/gi);
+    return m ? { r: parseInt(m[0], 16), g: parseInt(m[1], 16), b: parseInt(m[2], 16) } : { r: 0, g: 0, b: 0 };
+  }
+
+  function init() {
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    columns = Math.ceil(rect.width / charWidth);
+    rows = Math.ceil(rect.height / charHeight);
+    const total = columns * rows;
+    letters = Array.from({ length: total }, () => ({
+      char: randChar(),
+      color: randColor(),
+      target: randColor(),
+      progress: 1,
+    }));
+  }
+
+  function draw() {
+    const w = canvas.width / dpr;
+    const h = canvas.height / dpr;
+    ctx.clearRect(0, 0, w, h);
+    ctx.font = `${fontSize}px monospace`;
+    ctx.textBaseline = 'top';
+
+    for (let i = 0; i < letters.length; i++) {
+      const x = (i % columns) * charWidth;
+      const y = Math.floor(i / columns) * charHeight;
+      ctx.fillStyle = letters[i].color;
+      ctx.fillText(letters[i].char, x, y);
+    }
+  }
+
+  function update() {
+    const count = Math.max(1, Math.floor(letters.length * 0.05));
+    for (let i = 0; i < count; i++) {
+      const idx = Math.floor(Math.random() * letters.length);
+      letters[idx].char = randChar();
+      letters[idx].target = randColor();
+      letters[idx].progress = 0;
+    }
+
+    // Smooth color transitions
+    let needsDraw = false;
+    for (const l of letters) {
+      if (l.progress < 1) {
+        l.progress = Math.min(1, l.progress + 0.06);
+        const from = hexToRgb(l.color);
+        const to = hexToRgb(l.target);
+        l.color = `rgb(${Math.round(from.r + (to.r - from.r) * l.progress)},${Math.round(from.g + (to.g - from.g) * l.progress)},${Math.round(from.b + (to.b - from.b) * l.progress)})`;
+        needsDraw = true;
+      }
+    }
+    if (needsDraw) draw();
+  }
+
+  function animate(ts) {
+    if (ts - lastGlitch >= glitchSpeed) {
+      update();
+      draw();
+      lastGlitch = ts;
+    }
+    animId = requestAnimationFrame(animate);
+  }
+
+  init();
+  animId = requestAnimationFrame(animate);
+
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      cancelAnimationFrame(animId);
+      init();
+      animId = requestAnimationFrame(animate);
+    }, 200);
+  });
+})();
+
 // ── Folder Component ────────────────────────────
 const FOLDER_COLORS = [
   '#6366f1', '#8b5cf6', '#a855f7', '#d946ef',
