@@ -21,6 +21,73 @@ let msgCounter = 0;  // tracks 1-based session message index for assistant expor
 let indexedFileCount = 0;
 const sources = new Map();  // filename → source_id
 
+// ── Settings (localStorage) ─────────────────────
+const SETTINGS_KEY = 'uni-rag-settings';
+
+function loadSettings() {
+  try {
+    return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSettings(obj) {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(obj));
+}
+
+function getApiHeaders() {
+  const s = loadSettings();
+  const h = { 'Content-Type': 'application/json' };
+  if (s.api_key) h['X-API-Key'] = s.api_key;
+  return h;
+}
+
+function getApiOverrides() {
+  const s = loadSettings();
+  const overrides = {};
+  if (s.base_url) overrides.base_url = s.base_url;
+  if (s.model) overrides.model = s.model;
+  return overrides;
+}
+
+// Settings modal
+const settingsModal = document.getElementById('settings-modal');
+const settingsBtn = document.getElementById('settings-btn');
+const settingsClose = document.getElementById('settings-close');
+const settingsSave = document.getElementById('settings-save');
+const settingsCancel = document.getElementById('settings-cancel');
+const settingApiKey = document.getElementById('setting-api-key');
+const settingBaseUrl = document.getElementById('setting-base-url');
+const settingModel = document.getElementById('setting-model');
+
+function openSettings() {
+  const s = loadSettings();
+  settingApiKey.value = s.api_key || '';
+  settingBaseUrl.value = s.base_url || '';
+  settingModel.value = s.model || '';
+  settingsModal.classList.remove('hidden');
+  settingsModal.setAttribute('aria-hidden', 'false');
+}
+
+function closeSettings() {
+  settingsModal.classList.add('hidden');
+  settingsModal.setAttribute('aria-hidden', 'true');
+}
+
+if (settingsBtn) settingsBtn.addEventListener('click', openSettings);
+if (settingsClose) settingsClose.addEventListener('click', closeSettings);
+if (settingsCancel) settingsCancel.addEventListener('click', closeSettings);
+settingsModal?.querySelector('.modal-backdrop')?.addEventListener('click', closeSettings);
+if (settingsSave) settingsSave.addEventListener('click', () => {
+  saveSettings({
+    api_key: settingApiKey.value.trim(),
+    base_url: settingBaseUrl.value.trim(),
+    model: settingModel.value.trim(),
+  });
+  closeSettings();
+});
+
 async function loadKbs() {
   kbSelect.innerHTML = '';
   try {
@@ -346,10 +413,11 @@ form.addEventListener('submit', async (e) => {
     const endpoint = currentKbId
       ? `/api/kbs/${encodeURIComponent(currentKbId)}/query`
       : '/api/query';
+    const body = { question, session_id: sessionId, top_k: 5, ...getApiOverrides() };
     const r = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question, session_id: sessionId }),
+      headers: getApiHeaders(),
+      body: JSON.stringify(body),
     });
     const data = await r.json();
     if (!r.ok) {

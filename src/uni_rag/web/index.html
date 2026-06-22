@@ -81,6 +81,8 @@
           <div class="section-label">Workflow</div>
           <p>上传 → 提问 → 点击引用 → 查看原文高亮 → 导出答案。</p>
         </div>
+
+        <button type="button" id="settings-btn" class="settings-trigger" title="设置">⚙ 设置</button>
       </aside>
     </section>
   </main>
@@ -92,6 +94,36 @@
     </div>
     <div id="panel-body" class="panel-body"></div>
   </aside>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="modal hidden" aria-hidden="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>设置</h3>
+        <button id="settings-close" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="modal-body">
+        <label class="field">
+          <span>API Key</span>
+          <input type="password" id="setting-api-key" placeholder="输入你的 MiniMax API Key" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span>API Base URL</span>
+          <input type="text" id="setting-base-url" placeholder="https://api.minimaxi.com/anthropic" />
+        </label>
+        <label class="field">
+          <span>Model</span>
+          <input type="text" id="setting-model" placeholder="MiniMax-M3" />
+        </label>
+        <p class="hint">这些信息只存在你浏览器的 localStorage 里，不会发送到任何其他服务器。</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="settings-save" class="primary">保存</button>
+        <button type="button" id="settings-cancel">取消</button>
+      </div>
+    </div>
+  </div>
 
   <script src="/static/app.js"></script>
 </body>

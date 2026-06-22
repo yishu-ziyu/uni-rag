@@ -7,6 +7,7 @@ class QueryRequest(BaseModel):
     question: str
     session_id: str | None = None
     top_k: int = 5
+    api_key: str | None = None
 
 
 class Citation(BaseModel):

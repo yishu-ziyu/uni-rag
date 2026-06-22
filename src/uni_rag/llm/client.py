@@ -26,6 +26,16 @@ class LLMClient:
     def clear_messages(self) -> None:
         self._messages.clear()
 
+    def with_api_key(self, api_key: str) -> "LLMClient":
+        """Return a copy of this client using a different API key."""
+        clone = LLMClient.__new__(LLMClient)
+        clone.base_url = self.base_url
+        clone.api_key = api_key
+        clone.model = self.model
+        clone._client = Anthropic(base_url=clone.base_url, api_key=clone.api_key)
+        clone._messages = list(self._messages)
+        return clone
+
     def complete(self, system: str, max_tokens: int = 1024) -> str:
         """Non-streaming completion. Returns assistant text."""
         resp = self._client.messages.create(

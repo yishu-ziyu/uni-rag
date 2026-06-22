@@ -39,7 +39,10 @@ class RAGPipeline:
         question: str,
         session_id: str | None = None,
         top_k: int = 5,
+        api_key: str | None = None,
     ) -> dict:
+        llm = self.llm.with_api_key(api_key) if api_key else self.llm
+
         # 1. 检索（KB-scoped）
         chunks = self.retriever.retrieve(question, top_k=top_k)
 
@@ -51,19 +54,19 @@ class RAGPipeline:
             history = self.session_store.get_recent(session_id, max(cap - 1, 0))
 
         # 3. 构造 prompt
-        self.llm.clear_messages()
+        llm.clear_messages()
         for m in history:
             if m["role"] == "user":
-                self.llm.add_user_message(m["content"])
+                llm.add_user_message(m["content"])
             elif m["role"] == "assistant":
-                self.llm.add_assistant_message(m["content"])
+                llm.add_assistant_message(m["content"])
 
         if not chunks:
             answer = "未找到相关资料。请尝试换个问法，或先上传相关文档。"
         else:
             user_prompt = build_user_prompt(question, chunks)
-            self.llm.add_user_message(user_prompt)
-            answer = self.llm.complete(SYSTEM_PROMPT)
+            llm.add_user_message(user_prompt)
+            answer = llm.complete(SYSTEM_PROMPT)
 
         citations = self._extract_citations(answer, chunks)
 

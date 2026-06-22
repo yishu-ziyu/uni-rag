@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import threading
 import uuid
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 from uni_rag.rag.pipeline import RAGPipeline
@@ -265,9 +265,9 @@ def ingest_url(req: LinkIngestRequest):
     return _start_url_ingest_job(url, kb_id=req.kb_id)
 
 
-def _query_pipeline(pipeline: RAGPipeline, question: str, session_id: str, top_k: int) -> dict:
+def _query_pipeline(pipeline: RAGPipeline, question: str, session_id: str, top_k: int, api_key: str | None = None) -> dict:
     try:
-        return pipeline.query(question, session_id=session_id, top_k=top_k)
+        return pipeline.query(question, session_id=session_id, top_k=top_k, api_key=api_key)
     except Exception as e:
         raise HTTPException(
             502,
@@ -276,12 +276,13 @@ def _query_pipeline(pipeline: RAGPipeline, question: str, session_id: str, top_k
 
 
 @router.post("/query", response_model=QueryResponse)
-def query(req: QueryRequest):
+def query(request: Request, req: QueryRequest):
     sid = req.session_id
     if not sid:
         # 自动开新 session
         sid = SessionStore(load_settings().sessions_db_path).create()
-    result = _query_pipeline(get_pipeline(), req.question, sid, req.top_k)
+    api_key = req.api_key or request.headers.get("X-API-Key")
+    result = _query_pipeline(get_pipeline(), req.question, sid, req.top_k, api_key=api_key)
     return QueryResponse(
         answer=result["answer"],
         citations=result["citations"],
@@ -483,7 +484,7 @@ def get_kb_document_chunks(kb_id: str, filename: str):
 
 
 @router.post("/kbs/{kb_id}/query", response_model=QueryResponse)
-def query_kb(kb_id: str, req: QueryRequest):
+def query_kb(request: Request, kb_id: str, req: QueryRequest):
     """Ask a question against one KB; keeps v0.2 /api/query unchanged."""
     if _kb_store().get(kb_id) is None:
         raise HTTPException(404, f"KB not found: {kb_id}")
@@ -491,7 +492,8 @@ def query_kb(kb_id: str, req: QueryRequest):
     if not sid:
         sid = SessionStore(load_settings().sessions_db_path).create()
     _kb_store().bind_session(sid, [kb_id])
-    result = _query_pipeline(_pipeline_for_kb(kb_id), req.question, sid, req.top_k)
+    api_key = req.api_key or request.headers.get("X-API-Key")
+    result = _query_pipeline(_pipeline_for_kb(kb_id), req.question, sid, req.top_k, api_key=api_key)
     return QueryResponse(
         answer=result["answer"],
         citations=result["citations"],
