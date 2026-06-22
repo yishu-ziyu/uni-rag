@@ -1,5 +1,5 @@
 // src/uni_rag/web/app.js
-const fileList = document.getElementById('file-list');
+const folderView = document.getElementById('folder-view');
 const fileInput = document.getElementById('file-input');
 const dropzone = document.getElementById('dropzone');
 const chat = document.getElementById('chat');
@@ -110,6 +110,224 @@ if (themeToggle) {
   });
 }
 
+// ── Folder Component ────────────────────────────
+const FOLDER_COLORS = [
+  '#6366f1', '#8b5cf6', '#a855f7', '#d946ef',
+  '#ec4899', '#f43f5e', '#f97316', '#eab308',
+  '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6',
+];
+
+function hashColor(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return FOLDER_COLORS[Math.abs(hash) % FOLDER_COLORS.length];
+}
+
+function hexToRgb(hex) {
+  const c = hex.replace('#', '');
+  return {
+    r: parseInt(c.substring(0, 2), 16),
+    g: parseInt(c.substring(2, 4), 16),
+    b: parseInt(c.substring(4, 6), 16),
+  };
+}
+
+function rgbToHex(r, g, b) {
+  return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase();
+}
+
+function darken(hex, pct) {
+  const { r, g, b } = hexToRgb(hex);
+  return rgbToHex(
+    Math.max(0, Math.floor(r * (1 - pct))),
+    Math.max(0, Math.floor(g * (1 - pct))),
+    Math.max(0, Math.floor(b * (1 - pct))),
+  );
+}
+
+function lighten(hex, pct) {
+  const { r, g, b } = hexToRgb(hex);
+  return rgbToHex(
+    Math.min(255, Math.floor(r + (255 - r) * pct)),
+    Math.min(255, Math.floor(g + (255 - g) * pct)),
+    Math.min(255, Math.floor(b + (255 - b) * pct)),
+  );
+}
+
+function getFileIcon(filename) {
+  const ext = filename.split('.').pop().toLowerCase();
+  const map = { pdf: 'PDF', md: 'MD', markdown: 'MD', docx: 'DOC', txt: 'TXT', url: 'URL' };
+  return map[ext] || '?';
+}
+
+function getFileIconClass(filename) {
+  const ext = filename.split('.').pop().toLowerCase();
+  const map = { pdf: 'pdf', md: 'md', markdown: 'md', docx: 'docx', txt: 'txt' };
+  return map[ext] || 'txt';
+}
+
+function createFolderElement(kbId, kbName, documents, isActive) {
+  const color = hashColor(kbId);
+  const backColor = darken(color, 0.18);
+  const paper1 = lighten('#ffffff', 0.06);
+  const paper2 = lighten('#ffffff', 0.03);
+  const paper3 = '#ffffff';
+
+  const folder = document.createElement('div');
+  folder.className = 'folder';
+  folder.dataset.kbId = kbId;
+  if (isActive) folder.classList.add('open');
+
+  const totalChunks = documents.reduce((s, d) => s + d.chunks, 0);
+  const arrow = isActive ? '▾' : '▸';
+
+  folder.innerHTML = `
+    <div class="folder__back" style="--folder-color:${color};--folder-back-color:${backColor};--paper-1:${paper1};--paper-2:${paper2};--paper-3:${paper3};">
+      <div class="folder__front"></div>
+      <div class="folder__front right"></div>
+      <div class="folder__header">
+        <span class="folder__title">${escapeHtml(kbName)}</span>
+        <div class="folder__meta">
+          <span class="folder__count">${documents.length} 文件 · ${totalChunks} 块</span>
+          <span class="folder__arrow">${arrow}</span>
+        </div>
+      </div>
+      <div class="folder__papers">
+        ${documents.length === 0
+          ? '<div class="folder__empty">拖拽文件到这里或粘贴链接添加资料</div>'
+          : documents.map(doc => `
+            <div class="folder__paper">
+              <div style="display:flex;align-items:center;overflow:hidden;">
+                <span class="file-icon ${getFileIconClass(doc.filename)}">${getFileIcon(doc.filename)}</span>
+                <span class="folder__paper-name">${escapeHtml(doc.filename)}</span>
+              </div>
+              <span class="folder__paper-meta">${doc.chunks} 块</span>
+            </div>
+          `).join('')
+        }
+      </div>
+    </div>
+  `;
+
+  folder.addEventListener('click', () => {
+    const wasOpen = folder.classList.contains('open');
+    document.querySelectorAll('.folder.open').forEach(f => f.classList.remove('open'));
+    if (!wasOpen) {
+      folder.classList.add('open');
+      currentKbId = kbId;
+      kbSelect.value = kbId;
+      // Trigger KB switch: reset chat + load documents for this KB
+      resetWorkspaceForKb();
+      loadDocumentsForCurrentKb();
+    } else {
+      currentKbId = '';
+      kbSelect.value = '';
+      resetWorkspaceForKb();
+      loadDocumentsForCurrentKb();
+    }
+  });
+
+  folder.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      folder.click();
+    }
+  });
+
+  return folder;
+}
+
+async function renderAllKbFolders() {
+  try {
+    const [kbsResp, docsResp] = await Promise.all([
+      fetch('/api/kbs'),
+      fetch(currentKbId ? `/api/kbs/${encodeURIComponent(currentKbId)}/documents` : '/api/documents'),
+    ]);
+
+    let kbs = [];
+    if (kbsResp.ok) {
+      const kbsData = await kbsResp.json();
+      kbs = kbsData.kbs || [];
+    }
+
+    let currentDocs = [];
+    if (docsResp.ok) {
+      const docsData = await docsResp.json();
+      currentDocs = docsData.documents || [];
+    }
+
+    // Build map: kb_id → documents
+    const kbDocsMap = {};
+    for (const kb of kbs) kbDocsMap[kb.id] = [];
+
+    // Current KB's documents
+    if (currentKbId) {
+      kbDocsMap[currentKbId] = currentDocs;
+    } else if (kbs.length > 0) {
+      // Try to load default KB documents
+      const defaultKb = kbs.find(k => k.id === 'default') || kbs[0];
+      if (defaultKb) {
+        try {
+          const r = await fetch(`/api/kbs/${encodeURIComponent(defaultKb.id)}/documents`);
+          if (r.ok) {
+            const d = await r.json();
+            kbDocsMap[defaultKb.id] = d.documents || [];
+          }
+        } catch {}
+      }
+    }
+
+    // Handle documents not in any KB (legacy "default" without KB API)
+    if (!currentKbId && kbs.length === 0) {
+      kbDocsMap['_ungrouped'] = currentDocs;
+    }
+
+    folderView.innerHTML = '';
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'folder-view-header';
+    const totalKbs = kbs.length + (kbs.length === 0 && currentDocs.length > 0 ? 1 : 0);
+    const totalDocs = Object.values(kbDocsMap).reduce((s, arr) => s + arr.length, 0);
+    header.innerHTML = `
+      <h3>知识库</h3>
+      <span class="count">${totalKbs > 0 ? `${totalKbs} 个库 · ${totalDocs} 个文件` : ''}</span>
+    `;
+    folderView.appendChild(header);
+
+    // Render each KB as a folder
+    const view = document.createElement('div');
+    view.className = 'folder-view';
+
+    if (kbs.length === 0 && currentDocs.length > 0) {
+      // No KBs yet, show ungrouped documents
+      view.appendChild(createFolderElement('_ungrouped', '默认知识库', currentDocs, true));
+    } else {
+      for (const kb of kbs) {
+        const docs = kbDocsMap[kb.id] || [];
+        const isActive = kb.id === currentKbId;
+        view.appendChild(createFolderElement(kb.id, kb.name, docs, isActive));
+      }
+    }
+
+    folderView.appendChild(view);
+
+    // Update indexed count
+    indexedFileCount = totalDocs;
+    if (indexedFileCount === 0) showEmptyState();
+  } catch (err) {
+    setIngestStatus({
+      step: '加载知识库失败',
+      percent: 0,
+      message: err.message || '无法读取知识库结构。',
+      hidden: false,
+      error: true,
+    });
+  }
+}
+
 async function loadKbs() {
   kbSelect.innerHTML = '';
   try {
@@ -145,7 +363,7 @@ function resetWorkspaceForKb() {
   indexedFileCount = 0;
   chat.innerHTML = '';
   showEmptyState();
-  fileList.innerHTML = '';
+  folderView.innerHTML = '';
   sources.clear();
   updateQueryAvailability();
   setIngestStatus({ hidden: true });
@@ -173,32 +391,9 @@ function updateQueryAvailability() {
 }
 
 async function loadDocumentsForCurrentKb() {
-  const url = currentKbId
-    ? `/api/kbs/${encodeURIComponent(currentKbId)}/documents`
-    : '/api/documents';
-  try {
-    const r = await fetch(url);
-    if (!r.ok) throw new Error('加载文档列表失败');
-    const data = await r.json();
-    fileList.innerHTML = '';
-    indexedFileCount = data.documents.length;
-    data.documents.forEach((doc) => {
-      const li = document.createElement('li');
-      li.innerHTML = `<strong>${escapeHtml(doc.filename)}</strong><span>${doc.chunks} 块 · ${escapeHtml(currentKbId || 'default')}</span>`;
-      fileList.appendChild(li);
-    });
-    chat.innerHTML = '';
-    if (indexedFileCount === 0) showEmptyState();
-    updateQueryAvailability();
-  } catch (err) {
-    setIngestStatus({
-      step: '文档列表加载失败',
-      percent: 0,
-      message: err.message || '无法读取当前知识库的文档列表。',
-      hidden: false,
-      error: true,
-    });
-  }
+  // Fetch all KBs + their documents, render as folders
+  await renderAllKbFolders();
+  updateQueryAvailability();
 }
 
 function setIngestStatus({ step = '', percent = 0, message = '', hidden = false, error = false }) {
@@ -286,9 +481,7 @@ async function submitUrl() {
     indexedFileCount += 1;
     const emptyState = document.getElementById('empty-state');
     if (emptyState) emptyState.remove();
-    const li = document.createElement('li');
-    li.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${result.result.chunks} 块 · ${escapeHtml(currentKbId || 'default')}</span>`;
-    fileList.appendChild(li);
+    await renderAllKbFolders();
     setIngestStatus({
       step: '入库完成',
       percent: 100,
@@ -336,9 +529,7 @@ async function uploadFile(file) {
     indexedFileCount += 1;
     const emptyState = document.getElementById('empty-state');
     if (emptyState) emptyState.remove();
-    const li = document.createElement('li');
-    li.innerHTML = `<strong>${escapeHtml(file.name)}</strong><span>${data.result.chunks} 块 · ${escapeHtml(currentKbId || 'default')}</span>`;
-    fileList.appendChild(li);
+    await renderAllKbFolders();
     setIngestStatus({
       step: '入库完成',
       percent: 100,
