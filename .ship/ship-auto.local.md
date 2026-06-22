@@ -3,7 +3,7 @@ active: true
 task_id: uni-rag-ship-tasks-uni-rag-link-extractor-design-plan-spec-m
 session_id: c8c704aa-7eb5-415f-990a-0aab40c6c808
 branch: ship/uni-rag-ship-tasks-uni-rag-link-extractor-design-plan-spec-m
-phase: dev
+phase: e2e
 scope_mode: full
 review_fix_round: 0
 qa_fix_round: 0
