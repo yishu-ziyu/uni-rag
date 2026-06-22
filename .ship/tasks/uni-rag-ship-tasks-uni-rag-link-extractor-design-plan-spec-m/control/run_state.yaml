@@ -1,5 +1,5 @@
 task_id: uni-rag-ship-tasks-uni-rag-link-extractor-design-plan-spec-m
-active: true
+active: false
 current_phase: observe
-status: running
-updated_at: "2026-06-22T11:27:58Z"
+status: complete
+updated_at: "2026-06-22T11:28:14Z"

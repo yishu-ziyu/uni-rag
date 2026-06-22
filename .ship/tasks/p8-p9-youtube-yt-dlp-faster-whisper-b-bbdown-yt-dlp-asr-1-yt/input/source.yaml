@@ -1,0 +1,8 @@
+task_id: p8-p9-youtube-yt-dlp-faster-whisper-b-bbdown-yt-dlp-asr-1-yt
+source_type: user_request
+source_ref: conversation
+received_at: "2026-06-22T11:39:23Z"
+input_artifacts:
+  - path: input/requirement.md
+    type: markdown
+    role: raw_requirement
