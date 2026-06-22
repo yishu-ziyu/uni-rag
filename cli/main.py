@@ -36,6 +36,18 @@ def ingest(file: Path = typer.Argument(..., exists=True)):
     ))
 
 
+def _print_ingest_result(url: str, result: dict, kb_label: str | None = None) -> None:
+    """Print ingest result to console (shared by ingest-url and kb ingest-url)."""
+    lines = []
+    if kb_label:
+        lines.append(f"KB: [cyan]{kb_label}[/cyan]")
+    lines.append(f"链接: [bold]{url}[/bold]")
+    lines.append(f"格式: {result['format']}")
+    lines.append(f"chunks: {result['chunks']}")
+    lines.append(f"ID: {result['source_id']}")
+    console.print(Panel("\n".join(lines), title="✓ 已入库"))
+
+
 @app.command("ingest-url")
 def ingest_url(url: str = typer.Argument(..., help="要提取内容的链接")):
     """从链接提取内容并入库。"""
@@ -45,13 +57,7 @@ def ingest_url(url: str = typer.Argument(..., help="要提取内容的链接")):
     except Exception as e:
         console.print(f"[red]提取失败: {e}[/red]")
         raise typer.Exit(1) from e
-    console.print(Panel(
-        f"链接: [bold]{url}[/bold]\n"
-        f"格式: {result['format']}\n"
-        f"chunks: {result['chunks']}\n"
-        f"ID: {result['source_id']}",
-        title="✓ 已入库",
-    ))
+    _print_ingest_result(url, result)
 
 
 @app.command()
@@ -152,14 +158,7 @@ def ingest_url_kb(
     except Exception as e:
         console.print(f"[red]提取失败: {e}[/red]")
         raise typer.Exit(1) from e
-    console.print(Panel(
-        f"KB: [cyan]{kb_id}[/cyan]\n"
-        f"链接: [bold]{url}[/bold]\n"
-        f"格式: {result['format']}\n"
-        f"chunks: {result['chunks']}\n"
-        f"ID: {result['source_id']}",
-        title="✓ 已入库",
-    ))
+    _print_ingest_result(url, result, kb_label=kb_id)
 
 
 @app.command()
