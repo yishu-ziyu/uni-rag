@@ -19,6 +19,7 @@ from uni_rag.api.schemas import (
     ChunkInfo, DocumentChunksResponse,
     KbCreateRequest, KbInfo, KbListResponse,
     SessionKbBindRequest, SessionKbListResponse, DeleteResponse,
+    SuggestQuestionsRequest, SuggestQuestionsResponse,
 )
 from uni_rag.export.md_exporter import render_markdown
 from uni_rag.ingest.link_extractors import LinkExtractionError
@@ -288,6 +289,49 @@ def query(request: Request, req: QueryRequest):
         citations=result["citations"],
         session_id=sid,
     )
+
+
+@router.post("/suggest-questions", response_model=SuggestQuestionsResponse)
+def suggest_questions(request: Request, req: SuggestQuestionsRequest):
+    """根据文档内容生成 3 个建议问题。"""
+    s = load_settings()
+    api_key = req.api_key or request.headers.get("X-API-Key") or s.anthropic_api_key
+    base_url = s.anthropic_base_url
+    model = s.anthropic_model
+
+    if not api_key or api_key == "REPLACE_WITH_YOUR_REAL_KEY":
+        raise HTTPException(400, "请先在设置中配置 API Key")
+
+    preview = req.text[:3000]  # 限制长度
+    prompt = f"""根据以下文档内容，生成 3 个可以帮助学习者深入理解材料的问题。
+要求：问题具体、有启发性、覆盖不同理解层次（1 个基础概念题 + 1 个分析题 + 1 个应用/延伸题）。
+只返回问题列表，每行一个，不要编号，不要其他说明。
+
+文档内容：
+{preview}"""
+
+    try:
+        from anthropic import Anthropic
+        client = Anthropic(base_url=base_url, api_key=api_key)
+        resp = client.messages.create(
+            model=model,
+            max_tokens=256,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = ""
+        for block in resp.content:
+            if hasattr(block, "text"):
+                text += block.text
+        questions = [q.strip() for q in text.strip().split("\n") if q.strip()][:3]
+        if not questions:
+            questions = [
+                "这份材料的核心观点是什么？",
+                "有哪些关键概念需要掌握？",
+                "能举几个例子说明吗？",
+            ]
+        return SuggestQuestionsResponse(questions=questions)
+    except Exception as e:
+        raise HTTPException(502, f"生成建议问题失败: {e}") from e
 
 
 @router.get("/documents", response_model=DocumentListResponse)

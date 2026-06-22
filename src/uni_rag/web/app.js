@@ -274,7 +274,7 @@ async function submitUrl() {
       hidden: false,
     });
     updateQueryAvailability();
-    showSuggestedQuestions();
+    showSuggestedQuestions(title);
     urlInput.value = '';
   } catch (err) {
     setIngestStatus({
@@ -324,7 +324,7 @@ async function uploadFile(file) {
       hidden: false,
     });
     updateQueryAvailability();
-    showSuggestedQuestions();
+    showSuggestedQuestions(file.name);
   } catch (err) {
     setIngestStatus({
       step: '入库失败',
@@ -338,15 +338,46 @@ async function uploadFile(file) {
   }
 }
 
-const SUGGESTED_QUESTIONS = [
+const SUGGESTED_QUESTIONS_FALLBACK = [
   '这份材料的核心观点是什么？',
   '有哪些关键概念需要掌握？',
   '能举几个例子说明吗？',
 ];
 
-function showSuggestedQuestions() {
+async function showSuggestedQuestions(filename) {
   const existing = document.getElementById('suggested-questions');
   if (existing) existing.remove();
+
+  let questions = SUGGESTED_QUESTIONS_FALLBACK;
+
+  // Try LLM-generated questions if we have a filename and API key
+  if (filename) {
+    try {
+      const chunksUrl = currentKbId
+        ? `/api/kbs/${encodeURIComponent(currentKbId)}/documents/${encodeURIComponent(filename)}/chunks`
+        : `/api/documents/${encodeURIComponent(filename)}/chunks`;
+      const chunksResp = await fetch(chunksUrl);
+      if (chunksResp.ok) {
+        const chunksData = await chunksResp.json();
+        if (chunksData.chunks && chunksData.chunks.length > 0) {
+          const preview = chunksData.chunks.slice(0, 3).map(c => c.text).join('\n\n');
+          const suggestResp = await fetch('/api/suggest-questions', {
+            method: 'POST',
+            headers: getApiHeaders(),
+            body: JSON.stringify({ text: preview }),
+          });
+          if (suggestResp.ok) {
+            const suggestData = await suggestResp.json();
+            if (suggestData.questions && suggestData.questions.length > 0) {
+              questions = suggestData.questions.slice(0, 3);
+            }
+          }
+        }
+      }
+    } catch {
+      // Fallback to static questions on any error
+    }
+  }
 
   const container = document.createElement('div');
   container.id = 'suggested-questions';
@@ -356,7 +387,7 @@ function showSuggestedQuestions() {
   label.textContent = '试试问这些问题：';
   container.appendChild(label);
 
-  SUGGESTED_QUESTIONS.forEach((q) => {
+  questions.forEach((q) => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'suggest-chip';
@@ -504,7 +535,7 @@ function renderMessage(div, role, text, citations = [], messageIndex = null) {
       if (c.section) {
         label += ` · ${c.section}`;
       } else if (c.page > 0) {
-        label += ` · p.${c.page}`;
+        label += ` · 第${c.page}页`;
       }
       chip.textContent = label;
       chip.addEventListener('click', () => openCitation(c.source, c.span, c.text, currentKbId));

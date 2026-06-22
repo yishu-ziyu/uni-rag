@@ -136,9 +136,27 @@ class TestFrontendElements:
         """Citation chip renders page info when section is empty."""
         js = Path("src/uni_rag/web/app.js").read_text()
         assert "c.page" in js
-        assert "p." in js  # page format like "p.3"
+        assert "第" in js  # Chinese page format like "第3页"
 
     def test_citation_chip_shows_section_format(self):
         """Citation chip renders section when available."""
         js = Path("src/uni_rag/web/app.js").read_text()
         assert "c.section" in js
+
+    def test_suggest_questions_endpoint(self, client):
+        """POST /api/suggest-questions returns 3 questions."""
+        fake_response = MagicMock()
+        fake_response.content = [MagicMock(text="问题1\n问题2\n问题3")]
+
+        with patch('anthropic.Anthropic') as MockAnthropic:
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = fake_response
+            MockAnthropic.return_value = mock_client
+
+            r = client.post("/api/suggest-questions", json={
+                "text": "这是一篇关于机器学习的基础教程，介绍了监督学习、无监督学习和强化学习的核心概念。"
+            })
+            assert r.status_code == 200
+            data = r.json()
+            assert "questions" in data
+            assert len(data["questions"]) == 3

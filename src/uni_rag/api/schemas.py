@@ -102,5 +102,14 @@ class SessionKbListResponse(BaseModel):
     kbs: list[KbInfo]
 
 
+class SuggestQuestionsRequest(BaseModel):
+    text: str
+    api_key: str | None = None
+
+
+class SuggestQuestionsResponse(BaseModel):
+    questions: list[str]
+
+
 class DeleteResponse(BaseModel):
     deleted: bool
