@@ -1179,7 +1179,7 @@ select:disabled {
 .sm-overlay {
   position: fixed;
   inset: 0;
-  z-index: 900;
+  z-index: 9999;
   pointer-events: none;
   visibility: hidden;
 }
@@ -1231,12 +1231,12 @@ select:disabled {
   right: 0;
   width: min(38vw, 420px);
   height: 100%;
-  background: rgba(10, 10, 18, 0.92);
+  background: rgba(10, 10, 18, 0.94);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   display: flex;
   flex-direction: column;
-  padding: 5rem 2.5rem 2rem;
+  padding: 5.5rem 2.5rem 2rem;
   overflow-y: auto;
   z-index: 10;
   pointer-events: auto;
@@ -1349,7 +1349,7 @@ select:disabled {
   position: fixed;
   top: 1.2rem;
   right: 1.2rem;
-  z-index: 950;
+  z-index: 10001;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -1446,13 +1446,13 @@ select:disabled {
 .sm-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 899;
-  background: rgba(0, 0, 0, 0.5);
+  z-index: 9998;
+  background: rgba(0, 0, 0, 0.55);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.4s ease;
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+  transition: opacity 0.45s ease;
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
 }
 
 .sm-backdrop[data-open] {

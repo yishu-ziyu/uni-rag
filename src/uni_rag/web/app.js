@@ -113,6 +113,7 @@ if (themeToggle) {
 // ── Staggered Menu ──────────────────────────────
 (function () {
   const overlay = document.getElementById('sm-overlay');
+  const backdrop = document.getElementById('sm-backdrop');
   const toggle = document.getElementById('menu-toggle');
   const textInner = toggle ? toggle.querySelector('.sm-toggle-textInner') : null;
   let isOpen = false;
@@ -126,6 +127,7 @@ if (themeToggle) {
     isOpen = true;
     overlay.setAttribute('data-open', '');
     overlay.setAttribute('aria-hidden', 'false');
+    if (backdrop) backdrop.setAttribute('data-open', '');
     toggle.setAttribute('aria-expanded', 'true');
     toggle.setAttribute('aria-label', '关闭菜单');
     document.body.style.overflow = 'hidden';
@@ -138,6 +140,7 @@ if (themeToggle) {
     isOpen = false;
     overlay.removeAttribute('data-open');
     overlay.setAttribute('aria-hidden', 'true');
+    if (backdrop) backdrop.removeAttribute('data-open');
     toggle.setAttribute('aria-expanded', 'false');
     toggle.setAttribute('aria-label', '打开菜单');
     document.body.style.overflow = '';
@@ -151,9 +154,9 @@ if (themeToggle) {
   toggle.addEventListener('click', toggleMenu);
 
   // Close on backdrop click
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) closeMenu();
-  });
+  if (backdrop) {
+    backdrop.addEventListener('click', closeMenu);
+  }
 
   // Close on Escape
   document.addEventListener('keydown', (e) => {
