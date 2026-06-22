@@ -20,6 +20,6 @@ to expect linear history. Push rebases with `--force-with-lease`, never plain
 
 task_id: frontend-ux-quick-wins
 task_dir: .ship/tasks/frontend-ux-quick-wins
-branch: ship/frontend-ux-quick-wins
+branch: 
 run_state: .ship/tasks/frontend-ux-quick-wins/control/run_state.yaml
 Mode: /ship:auto staged workflow — no user questions.
