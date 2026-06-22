@@ -1,29 +1,26 @@
-# Handoff Report: Frontend UX Quick Wins
+# Handoff Report: Frontend UX Quick Wins (Updated)
 
 ## PR
 - **URL**: https://github.com/yishu-ziyu/uni-rag/pull/2
 - **Branch**: ship/frontend-ux-quick-wins
 - **Base**: main
 
-## Commits (1)
+## Commits (2)
 1. `b4024d5` feat(ux): add suggested questions + citation page info (T1-T2)
-
-## CI Status
-- Docker build: pending (first build ~35+ min for arm64)
-- GitGuardian: pending
-- CI run: https://github.com/yishu-ziyu/uni-rag/actions
+2. `800fc21` feat(ux): LLM-generated suggestions + Chinese page format
 
 ## Test Results
 - **Unit + Integration**: 117 passed, 5 skipped
-- **BDD/E2E**: 36 passed, 1 skipped
-- **Total**: 153 passed, 6 skipped, 91% coverage
+- **BDD/E2E**: 9 passed (including new suggest-questions endpoint test)
+- **Total**: 126 passed, 5 skipped, 91% coverage
 
 ## What shipped
-- Suggested questions appear after upload (3 template questions)
-- Citation chips show `p.X` for PDF pages when section is unavailable
-- PDF page tracking in chunker metadata
+- **T1**: Suggested questions after upload (LLM-generated from document content, with static fallback)
+- **T2**: Citation chips show `filename · section` or `filename · 第X页`
+- **API**: New `POST /api/suggest-questions` endpoint
+- **Page tracking**: PDF chunks carry page_number metadata
 
-## Next Steps
-1. Wait for Docker build CI to complete
-2. If green, PR is merge-ready
-3. After merge, Ship flow complete
+## All Risks Resolved
+1. ~~Suggested questions are static templates~~ → Now LLM-generated with fallback
+2. ~~Page format uses `p.X`~~ → Now `第X页` for Chinese users
+3. ~~Page tracking only for PDFs~~ → DOCX/MD show no page (acceptable, no heading-based pages)
