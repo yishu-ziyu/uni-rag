@@ -1,14 +1,28 @@
 """RAG prompt templates."""
 
 
-SYSTEM_PROMPT = """你是一个严谨的学术助手。回答学生问题时必须遵循以下规则：
+BASE_RULES = """回答学生问题时必须遵循以下规则：
 
 1. 只使用 <context> 中提供的资料回答，不要编造。
 2. 每条事实后必须用 [chunk_id] 标注来源，chunk_id 是 <context> 里每段的 ID。
 3. 如果 <context> 里没有相关信息，明确说"未找到相关资料"，不要硬答。
-4. 引用格式示例："监督学习使用标注数据 [abc123:100]。"
-5. 用中文回答，除非问题是英文。
-"""
+4. 引用格式示例：“监督学习使用标注数据 [abc123:100]。”"""
+
+STYLE_OVERLAYS: dict[str, str] = {
+    "academic": "你是一个严谨的学术助手。用严谨、学术化的语言回答，适当引用文献。",
+    "casual": "你是一个友好的学习助手。用通俗易懂的日常语言回答，像跟朋友聊天一样自然。",
+    "concise": "你是一个简洁的助手。用2-3句话概括要点，用分点列出关键结论。",
+}
+
+
+def get_system_prompt(style: str = "academic") -> str:
+    """Build a system prompt by combining BASE_RULES with a style overlay."""
+    overlay = STYLE_OVERLAYS.get(style, STYLE_OVERLAYS["academic"])
+    return f"{overlay}\n\n{BASE_RULES}\n\n5. 用中文回答，除非问题是英文。"
+
+
+# Backward-compatible alias — default academic style produces the same output as the old prompt.
+SYSTEM_PROMPT: str = get_system_prompt("academic")
 
 
 USER_PROMPT_TEMPLATE = """<context>

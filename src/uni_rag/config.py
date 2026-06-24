@@ -66,6 +66,9 @@ class Settings(BaseSettings):
         p.mkdir(parents=True, exist_ok=True)
         return p
 
+    # Citation verification
+    cite_similarity_threshold: float = 0.45
+
 
 _settings: Settings | None = None
 

@@ -26,3 +26,4 @@ web/dist/
 htmlcov/
 .pytest_cache/
 data/embedding-proxy.*.log
+data/kbs/

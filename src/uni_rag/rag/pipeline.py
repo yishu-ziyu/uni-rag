@@ -5,8 +5,9 @@ from pathlib import Path
 from uni_rag.ingest.pipeline import IngestPipeline
 from uni_rag.retrieve.retriever import HybridRetriever
 from uni_rag.llm.client import LLMClient
-from uni_rag.llm.prompts import SYSTEM_PROMPT, build_user_prompt
+from uni_rag.llm.prompts import get_system_prompt, build_user_prompt
 from uni_rag.cite.locator import locate_citation
+from uni_rag.cite.verifier import CitationVerifier
 from uni_rag.config import load_settings
 
 
@@ -39,6 +40,7 @@ class RAGPipeline:
         question: str,
         session_id: str | None = None,
         top_k: int = 5,
+        style: str = "academic",
         api_key: str | None = None,
     ) -> dict:
         llm = self.llm.with_api_key(api_key) if api_key else self.llm
@@ -61,12 +63,14 @@ class RAGPipeline:
             elif m["role"] == "assistant":
                 llm.add_assistant_message(m["content"])
 
-        if not chunks:
-            answer = "未找到相关资料。请尝试换个问法，或先上传相关文档。"
-        else:
+        system_prompt = get_system_prompt(style)
+
+        if chunks:
             user_prompt = build_user_prompt(question, chunks)
-            llm.add_user_message(user_prompt)
-            answer = llm.complete(SYSTEM_PROMPT)
+        else:
+            user_prompt = question
+        llm.add_user_message(user_prompt)
+        answer = llm.complete(system_prompt)
 
         citations = self._extract_citations(answer, chunks)
 
@@ -84,9 +88,14 @@ class RAGPipeline:
         chunk_map = {c["id"]: c for c in chunks}
         seen = set()
         out = []
+        settings = load_settings()
+        threshold = settings.cite_similarity_threshold
+        verifier = CitationVerifier(threshold=threshold)
+        last_end = 0
         for m in _CITE_RE.finditer(answer):
             cid = m.group(1)
             if cid in seen:
+                last_end = m.end()
                 continue
             seen.add(cid)
             chunk = chunk_map.get(cid)
@@ -108,6 +117,8 @@ class RAGPipeline:
                 page = 0
                 cited_text = ""
                 span = None
+            claimed_text = answer[last_end:m.start()].strip()
+            similarity = verifier.verify(claimed_text, cited_text) if (claimed_text and cited_text) else 0.0
             out.append({
                 "chunk_id": cid,
                 "source": src,
@@ -115,5 +126,8 @@ class RAGPipeline:
                 "page": page,
                 "text": cited_text,
                 "span": span,
+                "verified": similarity >= threshold,
+                "similarity": round(similarity, 4),
             })
+            last_end = m.end()
         return out

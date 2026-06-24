@@ -6,6 +6,7 @@ from collections.abc import Callable
 from uni_rag.ingest.parsers import parse_document
 from uni_rag.ingest.chunker import chunk_document
 from uni_rag.ingest.embedder import get_embedder
+from uni_rag.ingest.quality import ChunkQualityFilter
 from uni_rag.ingest.url_parser import parse_url_result
 from uni_rag.ingest import link_extractors
 from uni_rag.store.vector import VectorStore
@@ -26,6 +27,7 @@ class IngestPipeline:
 
     def __init__(self, kb_id: str | None = None):
         self.embedder = get_embedder()
+        self.quality_filter = ChunkQualityFilter()
         self.kb_id = kb_id
         if kb_id is None:
             # Legacy: v0.2 兼容模式
@@ -77,6 +79,12 @@ class IngestPipeline:
         if not chunks:
             emit("done", 100, "未解析出可用文本", chunks=0, source_id=source_id)
             return {"source_id": source_id, "chunks": 0, "format": doc.format}
+
+        if self.quality_filter.enabled:
+            kept, dropped = self.quality_filter.filter(chunks)
+            if dropped:
+                emit("filtering", 55, f"质量过滤：保留 {len(kept)} / 丢弃 {len(dropped)}")
+            chunks = kept
 
         texts = [c.text for c in chunks]
         emit("embedding", 60, f"正在生成 {len(chunks)} 个文本块的向量", chunks=len(chunks))
@@ -134,6 +142,12 @@ class IngestPipeline:
         if not chunks:
             emit("done", 100, "未解析出可用文本", chunks=0, source_id=source_id)
             return {"source_id": source_id, "chunks": 0, "format": doc.format}
+
+        if self.quality_filter.enabled:
+            kept, dropped = self.quality_filter.filter(chunks)
+            if dropped:
+                emit("filtering", 55, f"质量过滤：保留 {len(kept)} / 丢弃 {len(dropped)}")
+            chunks = kept
 
         texts = [c.text for c in chunks]
         emit("embedding", 60, f"正在生成 {len(chunks)} 个文本块的向量", chunks=len(chunks))

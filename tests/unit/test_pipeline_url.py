@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from uni_rag.ingest.pipeline import IngestPipeline
 from uni_rag.ingest.link_extractors import LinkExtractionResult
+from uni_rag.ingest.quality import ChunkQualityFilter
 
 
 class _FakeResult:
@@ -36,6 +37,7 @@ def pipeline(tmp_path):
         p.vector = MockVec.return_value
         p.bm25 = MockBM25.return_value
         p.uploads_dir = uploads
+        p.quality_filter = ChunkQualityFilter()
         yield p
 
 

@@ -266,9 +266,9 @@ def ingest_url(req: LinkIngestRequest):
     return _start_url_ingest_job(url, kb_id=req.kb_id)
 
 
-def _query_pipeline(pipeline: RAGPipeline, question: str, session_id: str, top_k: int, api_key: str | None = None) -> dict:
+def _query_pipeline(pipeline: RAGPipeline, question: str, session_id: str, top_k: int, api_key: str | None = None, style: str = "academic") -> dict:
     try:
-        return pipeline.query(question, session_id=session_id, top_k=top_k, api_key=api_key)
+        return pipeline.query(question, session_id=session_id, top_k=top_k, api_key=api_key, style=style)
     except Exception as e:
         raise HTTPException(
             502,
@@ -283,7 +283,7 @@ def query(request: Request, req: QueryRequest):
         # 自动开新 session
         sid = SessionStore(load_settings().sessions_db_path).create()
     api_key = req.api_key or request.headers.get("X-API-Key")
-    result = _query_pipeline(get_pipeline(), req.question, sid, req.top_k, api_key=api_key)
+    result = _query_pipeline(get_pipeline(), req.question, sid, req.top_k, api_key=api_key, style=req.style)
     return QueryResponse(
         answer=result["answer"],
         citations=result["citations"],
@@ -537,7 +537,7 @@ def query_kb(request: Request, kb_id: str, req: QueryRequest):
         sid = SessionStore(load_settings().sessions_db_path).create()
     _kb_store().bind_session(sid, [kb_id])
     api_key = req.api_key or request.headers.get("X-API-Key")
-    result = _query_pipeline(_pipeline_for_kb(kb_id), req.question, sid, req.top_k, api_key=api_key)
+    result = _query_pipeline(_pipeline_for_kb(kb_id), req.question, sid, req.top_k, api_key=api_key, style=req.style)
     return QueryResponse(
         answer=result["answer"],
         citations=result["citations"],
