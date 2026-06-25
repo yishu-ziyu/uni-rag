@@ -409,3 +409,80 @@ def test_ingest_url_invalid_url_returns_400(client):
 
     r = client.post("/api/ingest/url", json={"url": "ftp://example.com"})
     assert r.status_code == 400
+
+
+# ── providers 和 session 持久化测试 ──
+
+
+def test_providers_endpoint(client):
+    """GET /api/providers 应返回 3 个 provider。"""
+    r = client.get("/api/providers")
+    assert r.status_code == 200
+    data = r.json()
+    assert "providers" in data
+    ids = [p["id"] for p in data["providers"]]
+    assert "minimax" in ids
+    assert "stepfun" in ids
+    assert "local" in ids
+
+
+def test_session_persist_after_restart(tmp_path, monkeypatch):
+    """Session 写入后重新打开 SessionStore，历史不丢失。"""
+    monkeypatch.setenv("UNI_RAG_DATA_DIR_PATH", str(tmp_path))
+    monkeypatch.setenv("UNI_RAG_LLM_API_KEY", "test-key")
+    from uni_rag import config as cfg
+    cfg._settings = None
+
+    from uni_rag.session.store import SessionStore
+    db = tmp_path / "test_sessions.db"
+    store1 = SessionStore(db)
+    sid = store1.create()
+    store1.append(sid, "user", "你好")
+    store1.append(sid, "assistant", "你好！有什么可以帮你的？")
+    # 模拟服务重启：新建 SessionStore 实例
+    store2 = SessionStore(db)
+    history = store2.get(sid)
+    assert len(history) == 2
+    assert history[0]["role"] == "user"
+    assert history[0]["content"] == "你好"
+    assert history[1]["role"] == "assistant"
+
+
+def test_llm_receives_session_history(tmp_path, monkeypatch):
+    """验证 LLM 收到的 system prompt 构造中包含历史消息。"""
+    monkeypatch.setenv("UNI_RAG_DATA_DIR_PATH", str(tmp_path))
+    monkeypatch.setenv("UNI_RAG_LLM_API_KEY", "test-key")
+    from uni_rag import config as cfg
+    cfg._settings = None
+
+    from uni_rag.session.store import SessionStore
+    from uni_rag.rag.pipeline import RAGPipeline
+    from unittest.mock import MagicMock
+
+    # 手动写入历史
+    db = tmp_path / "sessions.db"
+    store = SessionStore(db)
+    sid = store.create()
+    store.append(sid, "user", "什么是机器学习？")
+    store.append(sid, "assistant", "机器学习是AI的一个分支。")
+
+    # 构造 pipeline，mock retriever 和 LLM
+    pipeline = RAGPipeline.__new__(RAGPipeline)
+    pipeline.uploads_dir = tmp_path
+    pipeline.retriever = MagicMock()
+    pipeline.retriever.retrieve.return_value = []
+    pipeline.session_store = store
+    pipeline.llm = MagicMock()
+    pipeline.llm.complete.return_value = "好的。"
+    pipeline.llm.clear_messages = MagicMock()
+    pipeline.llm.add_user_message = MagicMock()
+    pipeline.llm.add_assistant_message = MagicMock()
+
+    # 查询
+    pipeline.query("那深度学习呢？", session_id=sid)
+
+    # 验证 LLM 收到了历史消息
+    user_calls = [c[0][0] for c in pipeline.llm.add_user_message.call_args_list]
+    assistant_calls = [c[0][0] for c in pipeline.llm.add_assistant_message.call_args_list]
+    assert "什么是机器学习？" in user_calls
+    assert "机器学习是AI的一个分支。" in assistant_calls

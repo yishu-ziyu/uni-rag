@@ -41,7 +41,7 @@ function App() {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [documentContent, setDocumentContent] = useState<string>('');
   const [isLoadingDoc, setIsLoadingDoc] = useState(false);
-  const [sessionId, setSessionId] = useState<string>(() => {
+  const [sessionId] = useState<string>(() => {
     const stored = localStorage.getItem('uni-rag-session-id');
     if (stored) return stored;
     const newId = Math.random().toString(36).substring(2, 15);
@@ -329,22 +329,6 @@ function App() {
     }
   };
 
-  const fetchSuggestQuestions = async () => {
-    if (!documentContent) return [];
-    try {
-      const res = await fetch('/api/suggest-questions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: documentContent.slice(0, 5000), provider: selectedProvider }),
-      });
-      if (!res.ok) return [];
-      const data = await res.json();
-      return data.questions || [];
-    } catch {
-      return [];
-    }
-  };
-
   const hasFiles = files.length > 0 || urlJobs.size > 0;
 
   return (
@@ -379,7 +363,7 @@ function App() {
                   transition={{ delay: 0.2 }}
                   className="text-xl md:text-2xl text-slate-300 font-light tracking-wide mb-2 max-w-2xl mx-auto px-4"
                 >
-                  面向中文研究者的私有文档工作站
+                  问你自己的文档，数据永远不离开你的电脑
                 </motion.p>
                 <motion.p
                   initial={{ opacity: 0, y: 20 }}
@@ -387,7 +371,7 @@ function App() {
                   transition={{ delay: 0.25 }}
                   className="text-sm md:text-base text-slate-400 max-w-xl mx-auto mb-10 px-4"
                 >
-                  数据不出域的本地 RAG · 模型自由选择 · 国内直连可用
+                  NotebookLM 把文件传到 Google 服务器。uni-rag 在本地完成一切。
                 </motion.p>
 
                 <motion.div
@@ -400,19 +384,19 @@ function App() {
                     <div className="w-10 h-10 rounded-full bg-slate-800/80 flex items-center justify-center border border-slate-700/50 backdrop-blur-sm">
                       <FolderOpen size={18} className="text-indigo-400" />
                     </div>
-                    <span className="text-left leading-tight font-medium">数据主权<br/><span className="text-slate-500 text-xs font-normal">文档永远存本地杜绝泄露</span></span>
+                    <span className="text-left leading-tight font-medium">本地处理<br/><span className="text-slate-500 text-xs font-normal">论文和合同永远不会上传到云端</span></span>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-slate-800/80 flex items-center justify-center border border-slate-700/50 backdrop-blur-sm">
                       <Wand2 size={18} className="text-purple-400" />
                     </div>
-                    <span className="text-left leading-tight font-medium">模型自由<br/><span className="text-slate-500 text-xs font-normal">MiniMax / StepFun / 本地模型</span></span>
+                    <span className="text-left leading-tight font-medium">换模型<br/><span className="text-slate-500 text-xs font-normal">推理用强的，闲聊用便宜的</span></span>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-slate-800/80 flex items-center justify-center border border-slate-700/50 backdrop-blur-sm">
                       <Globe size={18} className="text-emerald-400" />
                     </div>
-                    <span className="text-left leading-tight font-medium">多源直连<br/><span className="text-slate-500 text-xs font-normal">PDF / YouTube / B站 无缝混合</span></span>
+                    <span className="text-left leading-tight font-medium">混合来源<br/><span className="text-slate-500 text-xs font-normal">PDF + 网页 + 视频字幕一起问</span></span>
                   </div>
                 </motion.div>
 
@@ -647,8 +631,8 @@ function App() {
                   className="flex-1 overflow-y-auto p-8"
                 >
                   <div className="max-w-2xl mx-auto">
-                    <h2 className="text-2xl font-bold text-slate-800 mb-2">你的文档，你的模型，你的规则。</h2>
-                    <p className="text-slate-500 mb-8 font-medium">NotebookLM 把文件上传到 Google？uni-rag 不。</p>
+                    <h2 className="text-2xl font-bold text-slate-800 mb-2">上传文档，开始提问。</h2>
+                    <p className="text-slate-500 mb-8 font-medium">你的文件只存在这台机器上，不会发到任何服务器。</p>
 
                     <div className="space-y-6">
                       {/* 步骤 1 */}
@@ -784,7 +768,7 @@ function App() {
                           <span className="font-medium text-sm text-slate-800">数据不出域</span>
                         </div>
                         <p className="text-xs text-slate-500 leading-relaxed relative z-10">
-                          你的论文、商业合同永远停留在你自己的机器上，不会上传到任何第三方平台。这是你的私有知识库。
+                          论文初稿、商业合同、内部财报 — 这些东西你不敢传到 NotebookLM。uni-rag 在本地处理，文件不出这台机器。
                         </p>
                       </div>
                       <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 relative overflow-hidden">
@@ -795,10 +779,10 @@ function App() {
                           <div className="w-6 h-6 rounded-md bg-purple-100 flex items-center justify-center">
                             <Wand2 size={14} className="text-purple-600" />
                           </div>
-                          <span className="font-medium text-sm text-slate-800">模型选择自由</span>
+                          <span className="font-medium text-sm text-slate-800">按需选模型</span>
                         </div>
                         <p className="text-xs text-slate-500 leading-relaxed relative z-10">
-                          根据需求无缝切换 MiniMax、StepFun 甚至本地模型。学术推理用聪明的，日常问答用便宜的。
+                          精读论文用推理强的，日常问答用便宜的，敏感文档用本地跑的。一个下拉框切换，不绑定任何一家。
                         </p>
                       </div>
                       <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 relative overflow-hidden">
@@ -809,10 +793,10 @@ function App() {
                           <div className="w-6 h-6 rounded-md bg-emerald-100 flex items-center justify-center">
                             <Globe size={14} className="text-emerald-600" />
                           </div>
-                          <span className="font-medium text-sm text-slate-800">国内直连可用</span>
+                          <span className="font-medium text-sm text-slate-800">PDF + 网页 + 视频</span>
                         </div>
                         <p className="text-xs text-slate-500 leading-relaxed relative z-10">
-                          无需繁琐的网络配置。原生接入国内领先大模型 API，速度快且稳定，告别网络连接烦恼。
+                          不只是 PDF。粘贴网页 URL 或 B 站/YouTube 链接，字幕自动提取，和 PDF 放在同一个知识库里一起问。
                         </p>
                       </div>
                     </div>

@@ -315,3 +315,30 @@
 3. **路径遍历防护** (`routes.py`)
    - `get_document_chunks` 和 `get_kb_document_chunks` 统一用 `Path(filename).name` 清理输入
    - 与 `_safe_upload_name()` 保持一致
+
+## 2026-06-25 — Phase 5 补充：P0-P2 测试缺口补齐
+
+### 新增 26 个行为验证测试（不是源码字符串检查）
+
+**P0 安全关键（10 个）** — `tests/unit/test_ssrf.py`（新建）
+- SSRF 防护：loopback / localhost / RFC1918 / link-local / IPv6 全拦截
+- 放行：公网域名 / fake-ip 代理段
+- 边界：空 hostname / DNS 失败 fail-closed
+
+**P1 功能正确性（10 个）**
+- `tests/unit/test_client.py` 扩展 5 个：with_provider stepfun/local/unknown + with_api_key 复制语义
+- `tests/integration/test_modes.py` 新建 5 个：flashcards/quiz/graph/translate 模式 citations 为空
+
+**P2 可靠性（6 个）**
+- `tests/integration/test_api.py` 扩展 3 个：providers 端点 / session 持久化 / LLM 收到历史内容
+- `tests/integration/test_document_list.py` 新建 3 个：空 sources / 不存在文件 chunks / 空问题
+
+### 定位表达重做
+- 着陆页：「面向中文研究者的私有文档工作站」→「问你自己的文档，数据永远不离开你的电脑」
+- 副标题：技术语言 → 痛点对比（NotebookLM 传到 Google vs uni-rag 本地处理）
+- 三个卖点：数据主权/模型自由/多源直连 → 本地处理/换模型/PDF+网页+视频
+- 欢迎页：「你的文档你的模型你的规则」→「上传文档，开始提问。」
+- 修复 2 个 TS6133 死代码（setSessionId / fetchSuggestQuestions）
+
+### 全量测试
+- **198 passed / 6 skipped / 0 failed**（从 172 → 198，+26 新测试，0 回归）

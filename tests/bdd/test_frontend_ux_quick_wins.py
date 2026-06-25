@@ -95,9 +95,9 @@ class TestSuggestedQuestions:
     """Suggested questions appear after upload."""
 
     def test_show_suggested_questions_function_exists(self):
-        """App.tsx contains fetchSuggestQuestions function."""
+        """App.tsx contains DiscoverPanel that calls suggest-questions API."""
         tsx = Path("frontend/src/App.tsx").read_text()
-        assert "fetchSuggestQuestions" in tsx
+        assert "DiscoverPanel" in tsx
 
     def test_suggested_questions_rendered_in_chat(self):
         """App.tsx renders suggested questions in chat area."""
