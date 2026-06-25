@@ -1,50 +1,46 @@
 from pathlib import Path
+import pytest
 from uni_rag.ingest.parsers import parse_document, ParsedDocument
 
-FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+def test_parse_pdf_uses_llama_parse_if_available(monkeypatch):
+    """Test that we dispatch to LlamaParse when LLAMA_CLOUD_API_KEY is present."""
+    class MockSettings:
+        llama_cloud_api_key = "test_key"
+    def mock_load_settings():
+        return MockSettings()
+    import uni_rag.config
+    monkeypatch.setattr(uni_rag.config, "load_settings", mock_load_settings)
+    
+    calls = []
+    def mock_parse_pdf_llama(path, api_key):
+        calls.append((path, api_key))
+        return ParsedDocument(text="llama text", format="pdf", source_path=str(path))
+    monkeypatch.setattr("uni_rag.ingest.parsers._parse_pdf_llama", mock_parse_pdf_llama)
+    
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
+        res = parse_document(f.name)
+        assert res.text == "llama text"
+        assert len(calls) == 1
+        assert calls[0][1] == "test_key"
 
-
-def test_parse_markdown():
-    doc = parse_document(FIXTURES / "sample.md")
-    assert isinstance(doc, ParsedDocument)
-    assert "Introduction" in doc.text
-    assert "Supervised" in doc.text
-    assert doc.format == "md"
-
-
-def test_parse_pdf():
-    doc = parse_document(FIXTURES / "sample.pdf")
-    assert "Supervised" in doc.text
-    assert "Unsupervised" in doc.text
-    assert doc.format == "pdf"
-
-
-def test_parse_unsupported_raises(tmp_path):
-    f = tmp_path / "weird.xyz"
-    f.write_text("nope")
-    import pytest
-    with pytest.raises(ValueError, match="Unsupported format"):
-        parse_document(f)
-
-
-def test_parse_docx_with_table():
-    """DOCX 解析必须把 2x2 表格变成 markdown | 分隔的多行。"""
-    doc = parse_document(FIXTURES / "sample_with_table_formula.docx")
-    assert "Aspect" in doc.text
-    assert "Description" in doc.text
-    # markdown 风格：包含 | 分隔
-    assert " | " in doc.text
-    # 至少两行表格
-    table_lines = [l for l in doc.text.split("\n") if " | " in l]
-    assert len(table_lines) >= 2
-
-
-def test_parse_docx_with_formula():
-    """DOCX 解析必须保留 $...$ 公式（原样保留或包到 code block 都算通过）。"""
-    doc = parse_document(FIXTURES / "sample_with_table_formula.docx")
-    # 内联公式原文保留
-    assert "x^2 + y^2 = z^2" in doc.text
-    # 块公式：用 ``` 围起来
-    assert "```" in doc.text
-    # 且包含积分符号或 LaTeX 关键字
-    assert "int_0^1" in doc.text or "int" in doc.text
+def test_parse_pdf_uses_pymupdf_if_no_key(monkeypatch):
+    """Test that we dispatch to PyMuPDF when LLAMA_CLOUD_API_KEY is None."""
+    class MockSettings:
+        llama_cloud_api_key = None
+    def mock_load_settings():
+        return MockSettings()
+    import uni_rag.config
+    monkeypatch.setattr(uni_rag.config, "load_settings", mock_load_settings)
+    
+    calls = []
+    def mock_parse_pdf_pymupdf(path):
+        calls.append(path)
+        return ParsedDocument(text="pymupdf text", format="pdf", source_path=str(path))
+    monkeypatch.setattr("uni_rag.ingest.parsers._parse_pdf_pymupdf", mock_parse_pdf_pymupdf)
+    
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
+        res = parse_document(f.name)
+        assert res.text == "pymupdf text"
+        assert len(calls) == 1

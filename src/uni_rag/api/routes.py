@@ -340,6 +340,15 @@ def list_documents():
     return DocumentListResponse(documents=_list_documents_for_kb("default"))
 
 
+@router.get("/files", response_model=DocumentListResponse)
+def list_files(kb_id: str | None = None):
+    """List uploaded files for a given kb_id, defaults to 'default'."""
+    target_kb = kb_id if kb_id else "default"
+    if target_kb != "default" and _kb_store().get(target_kb) is None:
+        raise HTTPException(404, f"KB not found: {target_kb}")
+    return DocumentListResponse(documents=_list_documents_for_kb(target_kb))
+
+
 @router.get("/documents/{filename}/chunks", response_model=DocumentChunksResponse)
 def get_document_chunks(filename: str):
     """Return all chunks for a given uploaded filename, ordered by offset."""

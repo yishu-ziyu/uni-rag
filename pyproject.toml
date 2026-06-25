@@ -22,6 +22,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "weasyprint>=60.0",
     "trafilatura>=2.1.0",
+    "llama-cloud>=2.9.0",
 ]
 
 [project.optional-dependencies]
