@@ -27,3 +27,6 @@ htmlcov/
 .pytest_cache/
 data/embedding-proxy.*.log
 data/kbs/
+
+# Frontend Chroma Data
+frontend/data/
