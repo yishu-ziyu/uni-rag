@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import MatrixBackground from './components/MatrixBackground';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeMathjax from 'rehype-mathjax';
 import {
   Home,
   Search,
@@ -299,10 +303,20 @@ function App() {
                       className={
                         msg.role === 'user'
                           ? "bg-indigo-50 border border-indigo-100 rounded-2xl rounded-tr-sm p-3 text-sm text-indigo-900"
-                          : "bg-slate-100 rounded-2xl rounded-tl-sm p-3 text-sm text-slate-700 leading-relaxed"
+                          : "bg-slate-100 rounded-2xl rounded-tl-sm p-3 text-sm text-slate-700 leading-relaxed markdown-content"
                       }
-                      dangerouslySetInnerHTML={{ __html: msg.text.replace(/\n/g, '<br/>') }}
-                    />
+                    >
+                      {msg.role === 'user' ? (
+                        msg.text
+                      ) : (
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm, remarkMath]}
+                          rehypePlugins={[rehypeMathjax]}
+                        >
+                          {msg.text}
+                        </ReactMarkdown>
+                      )}
+                    </div>
                     {msg.citations && msg.citations.length > 0 && (
                       <div className="mt-2 text-xs text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-200 self-start w-full">
                         <div className="font-semibold mb-1 text-slate-600 flex items-center">
