@@ -6,8 +6,10 @@ from uni_rag.retrieve.retriever import HybridRetriever
 
 @pytest.fixture
 def retriever(tmp_path, monkeypatch):
-    monkeypatch.setenv("UNI_RAG_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("UNI_RAG_DATA_DIR_PATH", str(tmp_path))
+    monkeypatch.setenv("UNI_RAG_LLM_API_KEY", "test-key")
+    from uni_rag import config as cfg
+    cfg._settings = None
     return HybridRetriever()
 
 

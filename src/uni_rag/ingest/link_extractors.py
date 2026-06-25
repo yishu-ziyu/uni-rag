@@ -129,7 +129,6 @@ class WebExtractor(LinkExtractor):
         try:
             text = trafilatura.extract(
                 downloaded,
-                include_title=True,
                 include_links=False,
                 include_images=False,
                 target_language="zh",
@@ -141,16 +140,9 @@ class WebExtractor(LinkExtractor):
         if not text or len(text.strip()) < 20:
             raise LinkExtractionError("web", "no_content", "页面未提取到有效正文内容")
 
-        # 用第一行作为标题
-        lines = text.strip().split("\n", 1)
-        title = lines[0].strip() if lines else url
-        if len(title) > 80:
-            title = title[:77] + "..."
-        body = lines[1].strip() if len(lines) > 1 else text
-
         return LinkExtractionResult(
-            text=body,
-            title=title,
+            text=text,
+            title=url,
             source_url=url,
             platform="web",
             content_type="article",

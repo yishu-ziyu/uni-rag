@@ -1,0 +1,317 @@
+# DEVLOG
+
+## 2026-06-25 — 基建补齐与体验打磨 (Ship Phase 4 验收交付)
+
+### 基建文档 (Phase 1-4 欠债偿还)
+- 新增 `docs/PRODUCT.md`：明确产品定位"面向中文研究者的私有文档工作站"、3 个 Golden Journeys 核心路径和不做的 Non-goals。
+- 新增 `docs/ARCHITECTURE.md`：绘制前后端数据流 Mermaid 架构图、核心组件（Chroma 纯 Metadata 无文件机制）的设计记录。
+
+### 体验打磨 (FTUE - 新手前 30 秒)
+1. **产品定位传达**：
+   - 彻底重构 Matrix 落地页：将"学生用的通用助手"转变为强有力的三个卖点 —— 数据不出域、模型自由、多源直连。
+   - 欢迎页能力概览区，由普通功能列表替换为三大核心差异化卖点带说明。
+2. **"空状态"交互升级**：
+   - 工作台空状态时，把之前冰冷的"暂无文件"，替换成了包含**「📁 上传第一份文档」主按钮**的操作面板。
+   - 增加绿色的"数据仅存于本地"安全徽章，建立用户信任。
+3. **渐进式功能展开**：
+   - 只有当 `files` 或 `urlJobs` 里有内容时，才会渲染顶部的"翻译"、"转图"工具条以及底部的"笔记/闪卡/测验/图谱"高级 Tabs。
+   - 避免首次使用的认知过载。
+4. **LLM 调用错误更友好**：
+   - 捕获 Provider 鉴权失败或网络失败。将生硬的后端红字转换为：`抱歉，模型调用失败 (错误详情)。💡 提示：请点击左下角「设置」检查是否已正确配置。`
+
+### 下一步 (Next Steps)
+- **Phase 5 TDD 闭环（技术债）**：大量旧版 `pytest` integration 正在抛错（因为 `api/query` 参数、Provider 等逻辑变更），需要启动一个独立的 `/loop` 或 TDD Agent，把集成测试大网织回 90% 覆盖率，以准备真正的 1.0 Release。
+# DEVLOG
+
+## 2026-06-25 — 欢迎引导页 + 构建修复
+
+- 将"主页"导航链接从外部跳转 `http://127.0.0.1:8000/` 改为内部欢迎/引导页
+- 欢迎页展示三步引导（上传文档 → 选择来源 → 开始提问）+ 产品能力概览（多轮问答/引用溯源/闪卡生成/测验出题）
+- 保留 Matrix 落地页作为首次访问入口，通过"进入工作区"按钮进入
+- 左侧栏迷你 Matrix hero 横幅点击可返回首页
+- 上传按钮增加 AnimatePresence 动画（处理中/上传文件切换）
+- 修复 JSX div 不匹配导致 `tsc -b` 构建失败
+
+## 2026-06-25 — 项目根 CLAUDE.md + Ship 默认行为
+
+- 项目根新增 `CLAUDE.md`，Ship 成为默认开发流程
+- 决策门 4 题：谁在使用 / 改什么 / 验收标准 / 几只手并行
+- 跳过规则：typo/1行bug/配置直接做，UI/多文件/新功能进 ship
+- 行业调研（ChatPDF/NotebookLM/Cider/Perplexity）：分栏+点击引用跳转是行业标准
+- uni-rag 选提取文本渲染（后端已有 chunk 接口，零额外成本），不引入 react-pdf 等重型依赖
+
+## 2026-06-25 — 文档预览渲染（Ship Phase 8 代码级 QA）
+
+- 加 `selectedFile` / `documentContent` / `isLoadingDoc` 状态
+- `fetchDocumentContent` 调 `/api/documents/{filename}/chunks` 取内容
+- `handleFileSelect` 点击文件加载内容
+- `FileItem` 接受 `onClick` prop，`active` 由 `selectedFile` 驱动
+- 中间栏文档查看器：有文件时渲染内容（.md → ReactMarkdown，其他 → plain text），无文件时显示占位提示
+- 关闭按钮清空选中状态
+- 代码级 QA 全部通过（tsc -b + 10 项结构检查）；浏览器 QA 通过 Playwright 验证渲染正确
+
+## 2026-06-25 — 思维魔法书 PDF 上传验证
+
+- 后端 API 返回 23 个 chunk，前端成功渲染为纯文本
+- 用户通过 browser-act 截图验证中间面板显示目录内容，active 高亮正常
+
+## 2026-06-25 — 全面业务流补齐（Ship + Loop Wave 1-3）
+
+### Bug 修复（3个）
+- **Citation 字段不匹配**: 前端读 `c.metadata.source` 但后端返回 `source` 顶层字段，改读 `c.source` / `c.page` / `c.text`
+- **Session 刷新丢失**: `sessionId` 从 useState 改为 localStorage 读写，刷新后保持同一会话
+- **Style 参数无效**: 闪卡/测验/图谱发送的 `bulleted/question/structured` 后端不支持，改为 `academic/concise/academic`
+
+### 后端 API 扩展（4个文件）
+- `schemas.py`: QueryRequest 增加 `mode` 字段（chat/translate/flashcards/quiz/graph）
+- `prompts.py`: 新增 MODE_PROMPTS 字典 + get_mode_system_prompt()
+- `pipeline.py`: query() 接受 mode 参数，非 chat 模式跳过引用提取
+- `routes.py`: 两个 query 路由透传 mode
+
+### 前端连线（App.tsx 单一文件）
+- 翻译 button → handleModeSend('translate') → /api/query?mode=translate
+- 闪卡/测验/图谱 tab → 解析后端 JSON，渲染卡片/选择题/SVG 图谱
+- 设置 NavItem → 弹窗配置 API Key → localStorage
+- 发现 NavItem → 弹窗调用 /api/suggest-questions
+
+## 2026-06-25 — 多 Provider LLM 选择器
+
+### 后端
+- `config.py`: PROVIDERS 字典注册 3 个 provider（minimax/stepfun/local），每个含 id/name/model/api_key/base_url
+- `llm/client.py`: 新增 `with_provider()` 工厂方法，根据 provider id 创建对应 LLM 客户端
+- `api/routes.py`: query_kb + suggest_questions 路由都透传 `provider` 参数到 pipeline
+- `api/schemas.py`: QueryRequest / SuggestQuestionsRequest 都支持 `provider: str = "minimax"`
+
+### 前端
+- `App.tsx`: `selectedProvider` state + localStorage 持久化（key: `uni-rag-provider`）
+- 设置弹窗增加 Provider 下拉选择器（3 个选项）
+- 底部聊天区显示当前 provider 名称 + ChevronDown 图标
+- `handleSend()` / `handleModeSend()` 都带 `provider: selectedProvider` 到请求体
+- **Bug 修复**: 前端字段名 `query` → `question`（后端 Pydantic schema 要求 `question`）
+- **Bug 修复**: Vite proxy target 从 `8000` → `5001`（后端实际端口）
+
+### 验证
+- browser-act E2E：MiniMax M3 成功返回 RAG 回答 + 引用溯源
+- StepFun provider 通过 curl 验证可用
+- 本地路由 provider 无 API key，预期行为（报错提示）
+
+## 2026-06-25 — PM/市场视角审阅：6 个核心缺陷
+
+### 审阅结论
+从产品经理 + 市场调研角度，uni-rag 当前最致命的不是功能缺失，而是**没有差异化叙事**。NotebookLM/ChatPDF/Perplexity 等产品已经解决了"文档问答"这个基础问题，用户为什么要选 uni-rag？
+
+### 6 个待修复方向
+
+1. **差异化缺失（最高优先级）**
+   - 多 provider 是技术架构优势，不是用户价值
+   - 需要找到 uni-rag 的独特定位：比如面向特定人群（研究者/学生/内容创作者）、特定场景（论文精读/合同审阅/教材消化）
+   - 调研方向：竞品 NotebookLM / ChatPDF / Perplexity 的差异化策略
+
+2. **默认状态即报错**
+   - 默认选中"本地路由"但无 API key，新用户第一个动作就看到错误
+   - 修复方向：默认选 MiniMax（有有效 key），或空 key 时显示友好引导而非错误
+
+3. **上传入口不清晰**
+   - 界面上有上传按钮但缺乏"上传第一个文档"的新用户引导
+   - 修复方向：空状态时突出上传 CTA，已有文件时保持但不喧宾夺主
+
+4. **引用溯源体验粗糙**
+   - 引用块密集堆叠，无视觉层次，用户难以快速定位信息来源
+   - 修复方向：可折叠引用卡片、页码跳转、高亮对应文本片段
+
+5. **无用户数据归属感**
+   - 纯 localStorage，换设备全丢，无账号/项目/历史
+   - 修复方向：最低成本方案是 Supabase auth + 云端同步（项目已引入 Supabase）
+
+6. **功能过载无引导路径**
+   - 聊天/笔记/闪卡/测验/图谱/翻译/信息图 8 种能力同时展示
+   - 新用户不知道先做什么
+   - 修复方向：渐进式引导，首次使用只展示核心功能，高级功能按使用深度解锁
+
+## 竞品调研与差异化策略（6 个缺陷的解决方案）
+
+### 调研背景
+从产品经理视角审阅，uni-rag 最致命的不是功能缺失，而是**没有差异化叙事**。NotebookLM/ChatPDF/Perplexity 等产品已经解决了"文档问答"这个基础问题，用户为什么要选 uni-rag？
+
+### 竞品格局
+
+| 竞品 | 定位 | 核心优势 | 致命短板 |
+|------|------|----------|----------|
+| **NotebookLM** | 文档先行型 AI 研究搭档 | Source Grounding（来源锚定）、引用溯源、100M+ token、音频摘要 | 国内不可用（需 Google 账号）、数据上传 Google 服务器 |
+| **Perplexity** | AI 搜索 | 联网搜索、Focus 模式、多源引用 | 不掌握封闭语料库、不处理私有文档 |
+| **ChatPDF** | 单 PDF 问答 | 简单直接、上手零门槛 | 单文档、无知识库、体验粗糙 |
+| **通义听悟** | 国内文档工具 | 中文支持好、国内可用 | 引用溯源弱、功能碎片化 |
+| **dify / RAGFlow** | 开源 RAG 平台 | 可私有化部署、插件丰富 | 面向开发者/企业，不是终端用户产品 |
+| **MaxKB** | 国产开源 RAG | 中文适配、企业级 | 同上，技术导向非产品导向 |
+
+**核心发现**：没有竞品同时满足"文档问答 + Source Grounding + 国内可用 + 数据不出域 + 多模型选择"。这个组合是 uni-rag 的空白地带。
+
+### uni-rag 差异化定位
+
+**一句话定位**：面向中文研究者的私有文档工作站
+
+**三条护城河**：
+1. **数据主权** — 你的文档永远在你手里。NotebookLM 用户最大的顾虑就是"文件上传到 Google"。论文初稿、商业合同、内部报告——这些文档用户不愿意上传到第三方。NotebookLM 主动"降智"锁死知识边界的设计，已经教育了市场："可信"比"全能"更重要。
+2. **模型选择自由** — 不同文档需要不同模型：学术文档要推理强的（StepFun），日常问答要便宜的（MiniMax），敏感文档要本地模型。NotebookLM 绑定 Gemini，用户没有选择。
+3. **国内可用** — 通义听悟能做文档问答但引用溯源弱，NotebookLM 国内用不了。uni-rag 填补了这个真空。
+
+### 6 个缺陷的修复方案
+
+#### 缺陷 1：差异化缺失 → 产品定位文档 + 着陆页重构
+
+**问题**：多 provider 是技术架构优势，不是用户价值
+**方案**：
+- 把"来源锚定 + 引用溯源"作为核心卖点（NotebookLM 已验证这个叙事有效）
+- 着陆页第一屏文案：**"你的文档，你的模型，你的规则"**
+- 引用体验从"堆叠列表"升级为"可折叠引用卡片 + 页码跳转"（方向 5 的子项）
+- 目标用户先聚焦：**研究者/学生**（NotebookLM 80 万学生用户已教育市场）
+
+#### 缺陷 2：默认状态即报错 → 改默认 provider + 空 key 友好引导
+
+**问题**：默认"本地路由"无 API key，新用户第一个动作看到错误
+**方案**：
+- 默认 provider 改为 `minimax`（有有效 key）
+- 空 key 时显示引导卡片而非错误页面："配置你的第一个模型" → 一键填入 key
+- 设置弹窗中的 provider 选择器增加"未配置"标记
+
+#### 缺陷 3：上传入口不清晰 → 空状态 CTA + 渐进式引导
+
+**问题**：新用户不知道先做什么
+**方案**：
+- 空文档列表时，中间面板显示大型上传 CTA（拖拽区 + 按钮）
+- 引导文案："上传你的第一份文档，开始提问"
+- 上传成功后自动聚焦输入框，预填"关于这份文档你想知道什么？"
+
+#### 缺陷 4：引用溯源体验粗糙 → 可折叠引用卡片
+
+**问题**：引用块密集堆叠，无视觉层次
+**方案**：
+- 每条引用改为可折叠卡片：默认折叠，点击展开
+- 卡片内显示：页码高亮 + 原文片段（20 字摘要）+ 来源文件名
+- 视觉层次：引用卡片使用次级背景色，与回答正文明确区分
+- 参考 NotebookLM 的引用设计：每条引用带页码定位，用户可跳转
+
+#### 缺陷 5：无用户数据归属感 → Supabase auth + 云端同步
+
+**问题**：纯 localStorage，换设备全丢
+**方案**：
+- 利用已有 Supabase 集成，增加 auth + 用户表
+- 文档元数据 + 会话历史同步到云端
+- 本地文件保持本地（不存大文件到 Supabase）
+- 最低可行方案：email/password auth，一个用户 = 一个 workspace
+- **不急于做**，先完成 1-4，用户量上来后再做
+
+#### 缺陷 6：功能过载无引导路径 → 渐进式功能解锁
+
+**问题**：8 种能力同时展示，新用户不知道先做什么
+**方案**：
+- 首次使用只展示核心功能：聊天问答 + 引用溯源
+- 高级功能（闪卡/测验/图谱/翻译）在首次上传文档后逐步解锁
+- 解锁顺序：闪卡（学习场景最直觉）→ 测验 → 图谱 → 翻译
+- 每个功能加 1 行说明文字，告诉用户"这个功能能帮你做什么"
+
+### 修复优先级排序
+
+| 优先级 | 缺陷 | 工作量 | 理由 |
+|--------|------|--------|------|
+| **P0** | 默认 provider 报错 | 1 小时 | 阻塞新用户 |
+| **P0** | 差异化定位 | 文案 | 没有定位就没有产品 |
+| **P1** | 上传入口 CTA | 半天 | 影响首次体验 |
+| **P1** | 引用体验升级 | 1-2 天 | 核心卖点的载体 |
+| **P2** | 渐进式引导 | 2-3 天 | 用户量上来后再做 |
+| **P3** | Supabase 账号 | 3-5 天 | 重要但非阻塞 |
+
+### 下一步
+- 写定位文案（着陆页 + 设置页）
+- 从 P0 开始逐项修复
+
+## 2026-06-25 — 链接 URL 入站功能
+
+- 后端新增 `POST /api/ingest/url` 端点：接收 URL → extractor 链（YouTube/Bilibili/Web）→ chunk → embed → Chroma
+- 后端新增 `GET /api/sources` 端点：从 Chroma metadata 聚合所有来源（文件 + URL），替代 `/api/files` 的磁盘-only 限制
+- 后端修复 `get_document_chunks`：移除硬性文件存在检查，允许 URL 来源通过 Chroma metadata 查询内容
+- 后端修复 trafilatura 兼容性：移除已弃用的 `include_title` 参数
+- 前端新增 `urlInput` / `showUrlInput` / `urlJobs` 状态管理
+- 前端新增平台检测：`getPlatformIcon` + `getPlatformLabel`（YouTube / Bilibili / Web）
+- 前端新增 job card 轮询（1.5s interval），显示平台图标 + 状态消息
+- 前端修复 job card 时序：首轮注册后才收起输入框；completed 延迟 2s 清理；failed 保持可见
+- 前端来源列表同时显示文件（FileText icon）和 URL 来源（Globe icon + platform icon）
+- 浏览器验证：YouTube 视频 "Me at the zoo" 和 "Giving Personality to Procedural Animations using Math" 均成功入站并可在侧边栏点击查看内容
+
+## 2026-06-25 — Phase 5 TDD：测试修复闭环
+
+### 根因分析
+178 个测试中 14 个失败，核心原因分为 3 类：
+
+1. **环境变量名变更**（影响 15+ 测试文件）：
+   - `UNI_RAG_DATA_DIR` → `UNI_RAG_DATA_DIR_PATH`（pydantic-settings `env_prefix` 不读 `_` 前缀的私有字段）
+   - `ANTHROPIC_API_KEY` → `UNI_RAG_LLM_API_KEY`（多 provider 重构后 key 名变更）
+   - 所有测试 fixture 需要额外 `cfg._settings = None` 重置单例
+
+2. **前端代码重构**（影响 `test_frontend_ux_quick_wins.py`）：
+   - 旧测试引用 `src/uni_rag/web/app.js`（已删除的 vanilla JS），改为检查 `frontend/src/App.tsx`
+   - 函数名 `fetchSuggestedQuestions` vs `fetchSuggestQuestions` 不一致
+
+3. **后端接口变更**（影响多个集成测试）：
+   - `test_pipeline_style.py`：`get_system_prompt` → `get_mode_system_prompt(mode, style)`
+   - `test_link_extractor_e2e.py`：`IngestPipeline` 的 `__new__` 跳过了 `__init__`，缺少 `quality_filter` mock
+   - `test_b4_refuses_when_no_relevant_info`：未 mock LLM 导致真实 API 401
+   - 安全修复 `Path(file.filename).name` 改变了路径遍历测试的预期
+
+### 修复结果
+- **170 passed → 172 passed**（最后 2 个修复已单独验证通过）
+- **6 skipped**（均为环境依赖跳过，预期行为）
+- **0 failed**
+- 全量跑通确认：**172 passed, 6 skipped, 0 failed — 432s**
+
+### 修改文件清单
+- `tests/bdd/test_b1_b4.py` — env var + LLM mock
+- `tests/bdd/test_frontend_ux_quick_wins.py` — 前端路径 + 函数名
+- `tests/integration/test_ingest_pipeline.py` — env var + settings reset
+- `tests/integration/test_link_extractor_e2e.py` — quality_filter mock
+- `tests/integration/test_pipeline_style.py` — system prompt mock target
+- `tests/integration/test_query_pipeline.py` — env var + settings reset
+- `tests/integration/test_retriever.py` — env var + settings reset
+- `tests/integration/test_session_store.py` — env var
+- `tests/integration/test_vector_store.py` — env var
+- `tests/unit/test_chunker.py` — env var
+- `tests/unit/test_config.py` — env var + field name
+- `tests/unit/test_embedder.py` — env var
+- `tests/unit/test_llm_client.py` — env var + API key
+- `tests/unit/test_llm_prompts.py` — env var
+- `tests/unit/test_parser.py` — env var
+- `tests/unit/test_quality_filter.py` — env var
+- `src/uni_rag/api/routes.py` — path traversal 安全修复
+
+### 下一步
+- Phase 7 Review：独立审查代码质量
+- Phase 9 Verify：全量测试跑一遍确认 ALL GREEN ✅（172 passed / 6 skipped / 0 failed）
+- Phase 11 Ship：准备 1.0 Release
+
+## 2026-06-25 — Phase 7 独立 Code Review
+
+**整体健康度：6.5 / 10**
+
+### 3 个需立即修复的安全问题
+1. **[CRITICAL] BM25 pickle 反序列化** — `bm25.py` 用 pickle.load，可被注入任意代码。改为 JSON 序列化。
+2. **[HIGH] SSRF 防护缺失** — URL 入库无内网地址过滤，可探测 127.0.0.1 / 169.254.169.254。
+3. **[HIGH] 路径遍历** — `get_document_chunks` 的 filename 参数未清理，可绕过 uploads_dir。
+
+### 做得好的
+- 模块划分清晰（ingest/retrieve/rag/llm/cite/store/session）
+- BDD 测试覆盖 B1-B4 核心流程
+- 进度回调和错误分类设计合理
+
+## 2026-06-25 — Phase 7 安全修复（3 个 CRITICAL/HIGH）
+
+1. **BM25 pickle → JSON** (`bm25.py`)
+   - `save()` 改用 `json.dump`，`load()` 优先读 `.json`，遇到旧 `.pkl` 自动迁移后删除
+   - 消除任意代码执行风险
+2. **SSRF 防护** (`routes.py`)
+   - 新增 `_is_safe_url()` 函数，DNS 解析后检查 IP 类型
+   - 拦截：loopback / link-local / RFC 1918 私有地址
+   - 放行：198.18.0.0/15（Surge/Clash fake‑ip 代理段，避免误报）
+   - 显式拒绝：localhost / 127.0.0.1 / ::1 / 0.0.0.0
+3. **路径遍历防护** (`routes.py`)
+   - `get_document_chunks` 和 `get_kb_document_chunks` 统一用 `Path(filename).name` 清理输入
+   - 与 `_safe_upload_name()` 保持一致

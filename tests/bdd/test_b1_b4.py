@@ -23,8 +23,8 @@ SAMPLE_PDF = FIXTURES_DIR / "sample.pdf"
 
 @pytest.fixture
 def pipeline(tmp_path, monkeypatch):
-    monkeypatch.setenv("UNI_RAG_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("UNI_RAG_DATA_DIR_PATH", str(tmp_path))
+    monkeypatch.setenv("UNI_RAG_LLM_API_KEY", "test-key")
     # Reset the cached settings singleton so it picks up the new env vars.
     from uni_rag import config as config_module
     config_module._settings = None
@@ -56,8 +56,8 @@ def test_b1_upload_returns_chunks(tmp_path, monkeypatch):
     And the PDF is persisted to the uploads directory.
     """
     # Arrange: fresh tmp pipeline
-    monkeypatch.setenv("UNI_RAG_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("UNI_RAG_DATA_DIR_PATH", str(tmp_path))
+    monkeypatch.setenv("UNI_RAG_LLM_API_KEY", "test-key")
     from uni_rag import config as config_module
     config_module._settings = None
     from uni_rag.ingest.pipeline import IngestPipeline
@@ -142,6 +142,11 @@ def test_b4_refuses_when_no_relevant_info(ingested, monkeypatch):
         "uni_rag.retrieve.retriever.HybridRetriever.retrieve",
         fake_retrieve,
     )
+
+    def fake_complete(self, system, max_tokens=1024):
+        return "未找到相关信息。"
+
+    monkeypatch.setattr("uni_rag.llm.client.LLMClient.complete", fake_complete)
 
     # Act
     result = ingested.query("量子纠缠的最新论文是哪篇？")

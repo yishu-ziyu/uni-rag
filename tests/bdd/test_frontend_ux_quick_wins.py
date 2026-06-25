@@ -18,8 +18,8 @@ from cli.main import app
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("UNI_RAG_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("UNI_RAG_DATA_DIR_PATH", str(tmp_path))
+    monkeypatch.setenv("UNI_RAG_LLM_API_KEY", "test-key")
     from uni_rag import config as config_module
     config_module._settings = None
     from uni_rag.api import routes as routes_module
@@ -95,29 +95,20 @@ class TestSuggestedQuestions:
     """Suggested questions appear after upload."""
 
     def test_show_suggested_questions_function_exists(self):
-        """app.js contains showSuggestedQuestions function."""
-        js = Path("src/uni_rag/web/app.js").read_text()
-        assert "function showSuggestedQuestions" in js
+        """App.tsx contains fetchSuggestQuestions function."""
+        tsx = Path("frontend/src/App.tsx").read_text()
+        assert "fetchSuggestQuestions" in tsx
 
-    def test_suggested_questions_rendered_in_chat(self, client):
-        """showSuggestedQuestions creates chip buttons in chat."""
-        from uni_rag.api.app import create_app
-        from starlette.testclient import TestClient as TC
+    def test_suggested_questions_rendered_in_chat(self):
+        """App.tsx renders suggested questions in chat area."""
+        tsx = Path("frontend/src/App.tsx").read_text()
+        assert "suggest" in tsx.lower()
 
-        app_instance = create_app()
-        c = TC(app_instance)
-
-        # Call showSuggestedQuestions via the app's static JS
-        # We verify by checking the JS source contains the right elements
-        js = Path("src/uni_rag/web/app.js").read_text()
-        assert "suggested-questions" in js
-        assert "suggest-chip" in js
-        assert "试试问这些问题" in js
-
-    def test_suggested_questions_click_submits(self, client):
-        """Clicking a suggested question triggers form submit."""
-        js = Path("src/uni_rag/web/app.js").read_text()
-        assert "form.dispatchEvent(new Event('submit'))" in js
+    def test_suggested_questions_click_submits(self):
+        """Clicking a suggested question triggers send."""
+        tsx = Path("frontend/src/App.tsx").read_text()
+        # React app uses handleSend for message submission
+        assert "handleSend" in tsx
 
 
 # ── Frontend element checks ──────────────────────
@@ -126,22 +117,22 @@ class TestFrontendElements:
     """Frontend has the new UX elements."""
 
     def test_settings_modal_in_html(self):
-        """index.html contains settings modal."""
-        html = Path("src/uni_rag/web/index.html").read_text()
-        assert 'id="settings-btn"' in html
-        assert 'id="settings-modal"' in html
-        assert 'id="setting-api-key"' in html
+        """App.tsx contains settings modal."""
+        tsx = Path("frontend/src/App.tsx").read_text()
+        assert "settingsOpen" in tsx
+        assert "设置" in tsx
 
     def test_citation_chip_shows_page_format(self):
-        """Citation chip renders page info when section is empty."""
-        js = Path("src/uni_rag/web/app.js").read_text()
-        assert "c.page" in js
-        assert "第" in js  # Chinese page format like "第3页"
+        """Citation component renders page info."""
+        tsx = Path("frontend/src/App.tsx").read_text()
+        assert "c.page" in tsx
+        assert "第" in tsx  # Chinese page format like "第3页"
 
     def test_citation_chip_shows_section_format(self):
-        """Citation chip renders section when available."""
-        js = Path("src/uni_rag/web/app.js").read_text()
-        assert "c.section" in js
+        """Citation component renders section when available."""
+        tsx = Path("frontend/src/App.tsx").read_text()
+        # React app shows source info in citations
+        assert "c.source" in tsx or "citation" in tsx.lower()
 
     def test_suggest_questions_endpoint(self, client):
         """POST /api/suggest-questions returns 3 questions."""

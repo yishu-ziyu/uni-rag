@@ -5,8 +5,10 @@ from uni_rag.ingest.pipeline import IngestPipeline
 
 @pytest.fixture
 def pipeline(tmp_path, monkeypatch):
-    monkeypatch.setenv("UNI_RAG_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("UNI_RAG_DATA_DIR_PATH", str(tmp_path))
+    monkeypatch.setenv("UNI_RAG_LLM_API_KEY", "test-key")
+    import uni_rag.config as cfg
+    cfg._settings = None
     return IngestPipeline()
 
 

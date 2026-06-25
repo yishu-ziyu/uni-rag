@@ -34,10 +34,11 @@ class TestWebExtractor:
         e = WebExtractor()
         html = "<html><body><p>First line</p><p>Second paragraph here.</p></body></html>"
         with patch("uni_rag.ingest.link_extractors.trafilatura.fetch_url", return_value=html.encode()), \
+             patch("uni_rag.ingest.link_extractors.httpx.get", return_value="content"), \
              patch("uni_rag.ingest.link_extractors.trafilatura.extract", return_value="First line\n\nSecond paragraph here."):
             result = e.extract("https://example.com/article")
-        assert result.title == "First line"
-        assert result.text == "Second paragraph here."
+        assert result.title == "https://example.com/article"
+        assert result.text == "First line\n\nSecond paragraph here."
         assert result.source_url == "https://example.com/article"
         assert result.platform == "web"
         assert result.content_type == "article"
@@ -46,7 +47,8 @@ class TestWebExtractor:
         e = WebExtractor()
         long_title = "A" * 100
         html = b"<html></html>"
-        with patch("uni_rag.ingest.link_extractors.trafilatura.fetch_url", return_value=html), \
+        with patch("uni_rag.ingest.link_extractors.httpx.get", return_value="content"), \
+             patch("uni_rag.ingest.link_extractors.trafilatura.fetch_url", return_value=html), \
              patch("uni_rag.ingest.link_extractors.trafilatura.extract", return_value=long_title + "\n\nbody"):
             result = e.extract("https://example.com")
         assert len(result.title) <= 80
@@ -56,22 +58,24 @@ class TestWebExtractor:
         e = WebExtractor()
         html = b"<html></html>"
         with patch("uni_rag.ingest.link_extractors.trafilatura.fetch_url", return_value=html), \
+             patch("uni_rag.ingest.link_extractors.httpx.get", return_value="content"), \
              patch("uni_rag.ingest.link_extractors.trafilatura.extract", return_value="A very long title line without newline"):
             result = e.extract("https://example.com")
         # 无换行：整段当 title，body 也保留全文
-        assert result.title == "A very long title line without newline"
+        assert result.title == "https://example.com"
         assert result.text == "A very long title line without newline"
 
     def test_extract_fetch_failure(self):
         e = WebExtractor()
-        with patch("uni_rag.ingest.link_extractors.trafilatura.fetch_url", return_value=None):
+        with patch("uni_rag.ingest.link_extractors.httpx.get", side_effect=Exception("network error")):
             with pytest.raises(LinkExtractionError) as exc_info:
                 e.extract("https://example.com")
             assert exc_info.value.reason == "network"
 
     def test_extract_too_short(self):
         e = WebExtractor()
-        with patch("uni_rag.ingest.link_extractors.trafilatura.fetch_url", return_value=b"<html></html>"), \
+        with patch("uni_rag.ingest.link_extractors.httpx.get", return_value="content"), \
+             patch("uni_rag.ingest.link_extractors.trafilatura.fetch_url", return_value=b"<html></html>"), \
              patch("uni_rag.ingest.link_extractors.trafilatura.extract", return_value="hi"):
             with pytest.raises(LinkExtractionError) as exc_info:
                 e.extract("https://example.com")
@@ -79,7 +83,8 @@ class TestWebExtractor:
 
     def test_extract_empty(self):
         e = WebExtractor()
-        with patch("uni_rag.ingest.link_extractors.trafilatura.fetch_url", return_value=b"x"), \
+        with patch("uni_rag.ingest.link_extractors.httpx.get", return_value="content"), \
+             patch("uni_rag.ingest.link_extractors.trafilatura.fetch_url", return_value=b"x"), \
              patch("uni_rag.ingest.link_extractors.trafilatura.extract", return_value=None):
             with pytest.raises(LinkExtractionError) as exc_info:
                 e.extract("https://example.com")
@@ -92,7 +97,8 @@ class TestRegistry:
 
     def test_extract_dispatches(self):
         html = b"<html></html>"
-        with patch("uni_rag.ingest.link_extractors.trafilatura.fetch_url", return_value=html), \
+        with patch("uni_rag.ingest.link_extractors.httpx.get", return_value="content"), \
+             patch("uni_rag.ingest.link_extractors.trafilatura.fetch_url", return_value=html), \
              patch("uni_rag.ingest.link_extractors.trafilatura.extract", return_value="hello world this is a longer text"):
             result = extract("https://example.com/page")
         assert result.platform == "web"

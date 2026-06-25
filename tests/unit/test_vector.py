@@ -6,7 +6,9 @@ from uni_rag.store.vector import VectorStore
 
 @pytest.fixture
 def store(tmp_path, monkeypatch):
-    monkeypatch.setenv("UNI_RAG_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("UNI_RAG_DATA_DIR_PATH", str(tmp_path))
+    from uni_rag import config as cfg
+    cfg._settings = None
     return VectorStore()
 
 
@@ -27,7 +29,9 @@ def test_query_with_filter(store):
 
 def test_vector_store_isolates_collections(tmp_path, monkeypatch):
     """两个 collection 互不污染。"""
-    monkeypatch.setenv("UNI_RAG_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("UNI_RAG_DATA_DIR_PATH", str(tmp_path))
+    from uni_rag import config as cfg
+    cfg._settings = None
     a = VectorStore(collection_name="kb_a")
     b = VectorStore(collection_name="kb_b")
     a.add("src", "c1", [0.1] * 1024, {"source": "a.txt"}, document="alpha content")

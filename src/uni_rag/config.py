@@ -1,5 +1,6 @@
 """Configuration loading from environment variables."""
 from __future__ import annotations
+import os
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -9,29 +10,49 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        env_prefix="UNI_RAG_",
+        protected_namespaces=(),
     )
 
-    # MiniMax / Anthropic 兼容
-    anthropic_base_url: str = "https://api.minimaxi.com/anthropic"
-    anthropic_api_key: str
-    anthropic_model: str = "MiniMax-M3"
+    # LLM 默认配置（MiniMax 是默认 provider）
+    llm_base_url: str = "https://api.minimaxi.com/anthropic"
+    llm_api_key: str
+    llm_model: str = "MiniMax-M3"
 
-    # 数据目录
-    uni_rag_data_dir: str = "./data"
+    # 数据目录（用 _path 后缀避免和 @property data_dir 冲突）
+    data_dir_path: str = "./data"
 
-    # Session 长度上限（防止长对话打爆 LLM context）
-    uni_rag_max_session_messages: int = 20
+    # Session 长度上限
+    max_session_messages: int = 20
 
-    @property
-    def max_session_messages(self) -> int:
-        """Alias for uni_rag_max_session_messages (used by RAG pipeline)."""
-        return self.uni_rag_max_session_messages
+    # Citation verification
+    cite_similarity_threshold: float = 0.45
+
+    # LlamaCloud (LlamaParse)
+    llama_cloud_api_key: str | None = None
+
+    # ── Provider registry ──
+    stepfun_base_url: str = "https://api.stepfun.com/step_plan"
+    stepfun_api_key: str | None = None
+    stepfun_model: str = "step-3.7-flash"
+
+    cli_proxy_base_url: str = "http://127.0.0.1:8317"
+    cli_proxy_api_key: str | None = None
+    cli_proxy_model: str = "gpt-4o"
+
+    PROVIDERS: dict[str, tuple[str, str, str]] = {}
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.PROVIDERS = {
+            "minimax": (self.llm_base_url, self.llm_api_key, self.llm_model),
+            "stepfun": (self.stepfun_base_url, self.stepfun_api_key or "", self.stepfun_model),
+            "local": (self.cli_proxy_base_url, self.cli_proxy_api_key or "", self.cli_proxy_model),
+        }
 
     @property
     def data_dir(self) -> Path:
-        p = Path(self.uni_rag_data_dir).expanduser().resolve()
-        p.mkdir(parents=True, exist_ok=True)
-        return p
+        return Path(self.data_dir_path).expanduser().resolve()
 
     @property
     def uploads_dir(self) -> Path:
@@ -65,12 +86,6 @@ class Settings(BaseSettings):
         p = self.data_dir / "kbs"
         p.mkdir(parents=True, exist_ok=True)
         return p
-
-    # Citation verification
-    cite_similarity_threshold: float = 0.45
-
-    # LlamaCloud (LlamaParse) configuration
-    llama_cloud_api_key: str | None = None
 
 
 _settings: Settings | None = None

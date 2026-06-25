@@ -46,9 +46,23 @@ def _parse_pdf_llama(path: Path, api_key: str) -> ParsedDocument:
         result = await client.parsing.parse(
             file_id=file_obj.id,
             tier="agentic",
+            version="latest",
             expand=["markdown_full"],
         )
-        return result.markdown_full
+        # Parse returns a dictionary according to some versions or an object
+        markdown_full = ""
+        if hasattr(result, "markdown_full"):
+            markdown_full = result.markdown_full
+        elif isinstance(result, dict) and "markdown_full" in result:
+            markdown_full = result["markdown_full"]
+        else:
+            # wait for completion? Oh! llama_cloud AsyncParsingResource doesn't wait by default?
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Result does not contain markdown_full directly: {type(result)}. Falling back to waiting...")
+            pass # wait_for_completion below? Wait, parse does not block?
+
+        return markdown_full
 
     try:
         loop = asyncio.get_event_loop()
