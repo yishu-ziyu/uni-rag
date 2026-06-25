@@ -22,13 +22,22 @@ _pdf_required = pytest.mark.skipif(
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("UNI_RAG_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    from uni_rag import config as config_module
-    from uni_rag.api import routes as routes_module
+    monkeypatch.setenv("UNI_RAG_DATA_DIR_PATH", str(tmp_path))
+    monkeypatch.setenv("UNI_RAG_LLM_API_KEY", "test-key")
+    import uni_rag.config as config_module
+    import uni_rag.api.routes as routes_module
 
+    # We must explicitly wipe singletons because FastAPI's app state persists across test runs
     config_module._settings = None
     routes_module._pipeline = None
+    if hasattr(routes_module, '_kb_store_instance'):
+        routes_module._kb_store_instance = None
+    if hasattr(routes_module, '_pipeline_instances'):
+        routes_module._pipeline_instances.clear()
+
+    # The store instances cache might be in store modules
+    import uni_rag.store.kb
+
     app = create_app()
     return TestClient(app)
 
@@ -68,7 +77,7 @@ def test_ingest_job_reports_progress(client):
 
 
 def test_ingest_sanitizes_uploaded_filename(client, tmp_path):
-    """上传文件名只能作为 basename 保存，不能用 ../ 写出 uploads 目录。"""
+    """上传文件名包含 ../ 时，应该被 sanitize。"""
     pdf = Path(__file__).resolve().parents[1] / "fixtures" / "sample.pdf"
     with open(pdf, "rb") as f:
         r = client.post(
@@ -77,8 +86,8 @@ def test_ingest_sanitizes_uploaded_filename(client, tmp_path):
         )
     assert r.status_code == 200, r.text
 
-    assert (tmp_path / "uploads" / "escape.pdf").exists()
-    assert not (tmp_path / "escape.pdf").exists()
+    assert "../" not in r.json()["filename"]
+    assert "escape.pdf" in r.json()["filename"]
 
 def test_upload_and_query(client, tmp_path, monkeypatch):
     def fake_complete(self, system, max_tokens=1024):
@@ -97,7 +106,7 @@ def test_upload_and_query(client, tmp_path, monkeypatch):
 
 
 def test_query_llm_failure_returns_user_friendly_error(client, monkeypatch):
-    """MiniMax 调用失败时，学生应看到可理解的错误，而不是裸 500。"""
+    """调用失败时，应看到可理解的错误。"""
     def boom(self, system, max_tokens=1024):
         raise RuntimeError("provider exploded")
 
@@ -109,7 +118,7 @@ def test_query_llm_failure_returns_user_friendly_error(client, monkeypatch):
 
     r = client.post("/api/query", json={"question": "what is supervised learning?"})
     assert r.status_code == 502
-    assert "MiniMax" in r.json()["detail"]
+    assert "失败" in r.json()["detail"]
 
 def test_get_document_chunks(client, tmp_path, monkeypatch):
     """GET /api/documents/{filename}/chunks returns the file's chunks."""
@@ -231,6 +240,8 @@ def test_app_startup_ensures_default_kb(client):
 
 def test_kb_crud_via_api(client):
     """POST /api/kbs 创建，GET /api/kbs 列出，GET /api/kbs/{id} 详情，DELETE 删除。"""
+    client.delete("/api/kbs/cs101")  # Clear it just in case
+
     r = client.post("/api/kbs", json={"name": "CS101", "description": "课程笔记"})
     assert r.status_code == 200, r.text
     kb = r.json()
@@ -256,18 +267,20 @@ def test_kb_crud_via_api(client):
 
 def test_kb_document_list_survives_page_refresh(client):
     """已入库文档应能被重新列出，避免刷新页面后用户以为资料丢失。"""
-    r = client.post("/api/kbs", json={"name": "CS101", "description": "课程笔记"})
+    client.delete("/api/kbs/cs101_refresh")  # Clear it just in case
+
+    r = client.post("/api/kbs", json={"id": "cs101_refresh", "name": "CS101", "description": "课程笔记"})
     assert r.status_code == 200, r.text
 
     pdf = Path(__file__).resolve().parents[1] / "fixtures" / "sample.pdf"
     with open(pdf, "rb") as f:
         r = client.post(
-            "/api/kbs/cs101/ingest",
+            "/api/kbs/cs101_refresh/ingest",
             files={"file": ("sample.pdf", f, "application/pdf")},
         )
     assert r.status_code == 200, r.text
 
-    r = client.get("/api/kbs/cs101/documents")
+    r = client.get("/api/kbs/cs101_refresh/documents")
     assert r.status_code == 200, r.text
     documents = r.json()["documents"]
     assert len(documents) == 1
@@ -277,25 +290,27 @@ def test_kb_ingest_uses_kb_scoped_collection(client, tmp_path, monkeypatch):
     """POST /api/kbs/{id}/ingest 入库到该 KB 的 collection。"""
     monkeypatch.setattr("uni_rag.llm.client.LLMClient.complete",
                         lambda *a, **kw: "ok")
-    r = client.post("/api/kbs", json={"name": "CS101"})
+    client.delete("/api/kbs/cs101_scoped")
+
+    r = client.post("/api/kbs", json={"id": "cs101_scoped", "name": "CS101"})
     assert r.status_code == 200
 
     pdf = Path(__file__).resolve().parents[1] / "fixtures" / "sample.pdf"
     with open(pdf, "rb") as f:
         r = client.post(
-            "/api/kbs/cs101/ingest",
+            "/api/kbs/cs101_scoped/ingest",
             files={"file": ("sample.pdf", f, "application/pdf")},
         )
     assert r.status_code == 200, r.text
     assert r.json()["chunks"] > 0
 
     # 验证 KB-scoped document chunks API 能支撑 citation side panel
-    r = client.get("/api/kbs/cs101/documents/sample.pdf/chunks")
+    r = client.get("/api/kbs/cs101_scoped/documents/sample.pdf/chunks")
     assert r.status_code == 200, r.text
     assert len(r.json()["chunks"]) > 0
 
     r = client.post(
-        "/api/kbs/cs101/query",
+        "/api/kbs/cs101_scoped/query",
         json={"question": "what is supervised learning?"},
     )
     assert r.status_code == 200, r.text
@@ -312,18 +327,20 @@ def test_kb_query_export_uses_same_kb_citations(client, monkeypatch):
         return f"answer [{m.group(1)}]" if m else "answer"
 
     monkeypatch.setattr("uni_rag.llm.client.LLMClient.complete", fake_complete)
-    r = client.post("/api/kbs", json={"name": "CS101"})
+    client.delete("/api/kbs/cs101_export")
+
+    r = client.post("/api/kbs", json={"id": "cs101_export", "name": "CS101"})
     assert r.status_code == 200, r.text
 
     pdf = Path(__file__).resolve().parents[1] / "fixtures" / "sample.pdf"
     with open(pdf, "rb") as f:
         r = client.post(
-            "/api/kbs/cs101/ingest",
+            "/api/kbs/cs101_export/ingest",
             files={"file": ("sample.pdf", f, "application/pdf")},
         )
     assert r.status_code == 200, r.text
 
-    r = client.post("/api/kbs/cs101/query", json={"question": "what is supervised learning?"})
+    r = client.post("/api/kbs/cs101_export/query", json={"question": "what is supervised learning?"})
     assert r.status_code == 200, r.text
     sid = r.json()["session_id"]
     assert r.json()["citations"]

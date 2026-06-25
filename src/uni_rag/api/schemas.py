@@ -9,6 +9,8 @@ class QueryRequest(BaseModel):
     top_k: int = 5
     style: str = "academic"
     api_key: str | None = None
+    provider: str = "minimax"  # "minimax" | "stepfun" | "local"
+    mode: str = "chat"  # "chat" | "translate" | "flashcards" | "quiz" | "graph"
 
 
 class Citation(BaseModel):
@@ -52,6 +54,9 @@ class IngestJobStatusResponse(BaseModel):
 class DocumentInfo(BaseModel):
     filename: str
     chunks: int
+    format: str = "unknown"
+    platform: str | None = None
+    source_url: str | None = None
 
 
 class DocumentListResponse(BaseModel):
@@ -106,6 +111,7 @@ class SessionKbListResponse(BaseModel):
 class SuggestQuestionsRequest(BaseModel):
     text: str
     api_key: str | None = None
+    provider: str = "minimax"
 
 
 class SuggestQuestionsResponse(BaseModel):
@@ -114,3 +120,13 @@ class SuggestQuestionsResponse(BaseModel):
 
 class DeleteResponse(BaseModel):
     deleted: bool
+
+
+class ProviderInfo(BaseModel):
+    id: str
+    name: str
+    model: str
+
+
+class ProvidersResponse(BaseModel):
+    providers: list[ProviderInfo]

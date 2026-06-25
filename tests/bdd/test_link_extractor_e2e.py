@@ -25,8 +25,8 @@ from cli.main import app
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("UNI_RAG_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("UNI_RAG_DATA_DIR_PATH", str(tmp_path))
+    monkeypatch.setenv("UNI_RAG_LLM_API_KEY", "test-key")
     from uni_rag import config as config_module
     from uni_rag.api import routes as routes_module
     config_module._settings = None
@@ -37,8 +37,8 @@ def client(tmp_path, monkeypatch):
 
 @pytest.fixture
 def runner(tmp_path, monkeypatch):
-    monkeypatch.setenv("UNI_RAG_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("UNI_RAG_DATA_DIR_PATH", str(tmp_path))
+    monkeypatch.setenv("UNI_RAG_LLM_API_KEY", "test-key")
     from uni_rag import config as config_module
     config_module._settings = None
     return CliRunner()
@@ -106,6 +106,8 @@ class TestAC2_PipelineReuse:
                 p.vector = MockVec.return_value
                 p.bm25 = MockBM25.return_value
                 p.uploads_dir = Path("/tmp/uploads")
+                p.quality_filter = MagicMock()
+                p.quality_filter.enabled = False
                 result = p.ingest_url("https://example.com/c")
         assert result["format"] == "url"
         assert result["chunks"] == 1
@@ -142,6 +144,8 @@ class TestAC2_PipelineReuse:
                 p.vector = MockVec.return_value
                 p.bm25 = MockBM25.return_value
                 p.uploads_dir = Path("/tmp/uploads")
+                p.quality_filter = MagicMock()
+                p.quality_filter.enabled = False
                 p.ingest_url("https://example.com/d")
         call_kwargs = MockVec.return_value.add.call_args[1]
         assert call_kwargs["metadata"]["platform"] == "web"
@@ -153,14 +157,14 @@ class TestAC2_PipelineReuse:
 
 class TestAC3_WebUI:
     def test_index_html_has_url_input(self):
-        """index.html 包含链接输入区域。"""
-        html = Path("src/uni_rag/web/index.html").read_text()
-        assert "paste" in html.lower() or "链接" in html or "url" in html.lower()
+        """React 前端包含链接输入功能。"""
+        tsx = Path("frontend/src/App.tsx").read_text()
+        assert "urlInput" in tsx or "showUrlInput" in tsx
 
     def test_app_js_has_url_endpoint(self):
-        """app.js 调用 /api/ingest/url 端点。"""
-        js = Path("src/uni_rag/web/app.js").read_text()
-        assert "/api/ingest/url" in js
+        """React 前端调用 /api/ingest/url 端点。"""
+        tsx = Path("frontend/src/App.tsx").read_text()
+        assert "/api/ingest/url" in tsx
 
 
 # ── AC-4: CLI ────────────────────────────────────────────────────

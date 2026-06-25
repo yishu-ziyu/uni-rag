@@ -1,7 +1,7 @@
 [project]
 name = "uni-rag"
-version = "0.1.0"
-description = "Universal RAG assistant for students"
+version = "1.0.0"
+description = "面向中文研究者的私有文档工作站 — 本地 RAG · 模型自由 · 数据不出域"
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.115",

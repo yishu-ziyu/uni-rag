@@ -1,9 +1,12 @@
 """API route handlers."""
 from __future__ import annotations
+import ipaddress
+import socket
 from pathlib import Path
 import tempfile
 import threading
 import uuid
+from urllib.parse import urlparse
 from fastapi import APIRouter, UploadFile, File, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -20,6 +23,7 @@ from uni_rag.api.schemas import (
     KbCreateRequest, KbInfo, KbListResponse,
     SessionKbBindRequest, SessionKbListResponse, DeleteResponse,
     SuggestQuestionsRequest, SuggestQuestionsResponse,
+    ProvidersResponse, ProviderInfo,
 )
 from uni_rag.export.md_exporter import render_markdown
 from uni_rag.ingest.link_extractors import LinkExtractionError
@@ -216,6 +220,24 @@ def health():
     return {"status": "ok"}
 
 
+@router.get("/providers", response_model=ProvidersResponse)
+def list_providers():
+    """Return available LLM providers with their configured models."""
+    s = load_settings()
+    items = []
+    for pid, (_url, _key, model) in s.PROVIDERS.items():
+        if pid == "minimax":
+            name = "MiniMax M3"
+        elif pid == "stepfun":
+            name = "阶跃星辰 Step"
+        elif pid == "local":
+            name = "本地路由"
+        else:
+            name = pid
+        items.append(ProviderInfo(id=pid, name=name, model=model))
+    return ProvidersResponse(providers=items)
+
+
 @router.post("/ingest/jobs", response_model=IngestJobStartResponse)
 def start_ingest_job(file: UploadFile = File(...)):
     return _start_ingest_job(file)
@@ -233,27 +255,60 @@ def get_ingest_job(job_id: str):
 async def ingest(file: UploadFile = File(...)):
     if not file.filename:
         raise HTTPException(400, "No filename")
+    safe_filename = Path(file.filename).name
     # 存临时文件 → pipeline 读取
-    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(safe_filename).suffix) as tmp:
         content = await file.read()
         tmp.write(content)
         tmp_path = Path(tmp.name)
     try:
-        # 用上传时的 filename 命名落盘文件，side-panel 按 filename 查找
-        result = get_pipeline().ingest_file(tmp_path, original_name=file.filename)
+        # 用上传时的 safe_filename 命名落盘文件，side-panel 按 filename 查找
+        result = get_pipeline().ingest_file(tmp_path, original_name=safe_filename)
     finally:
         tmp_path.unlink(missing_ok=True)
     return IngestResponse(
         source_id=result["source_id"],
         chunks=result["chunks"],
         format=result["format"],
-        filename=file.filename,
+        filename=safe_filename,
     )
 
 
 class LinkIngestRequest(BaseModel):
     url: str
     kb_id: str | None = None
+
+
+def _is_safe_url(url: str) -> bool:
+    """Reject URLs that resolve to loopback / link-local addresses (SSRF prevention).
+
+    Note: 不拦截 198.18.0.0/15（fake‑ip 代理段），因为 Surge / Clash 等工具
+    会把所有域名解析到这个段，代理层负责转发到真实地址。
+    """
+    FAKEIP_NET = ipaddress.ip_network("198.18.0.0/15")
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        # 明确拒绝 localhost
+        if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+            return False
+        # 解析域名为 IP（可能返回多个）
+        ips = socket.getaddrinfo(hostname, None)
+        for *_, sockaddr in ips:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_loopback or ip.is_link_local:
+                return False
+            # fake‑ip 代理段放行（Surge / Clash 等）
+            if ip in FAKEIP_NET:
+                continue
+            # RFC 1918 私有地址
+            if ip.is_private:
+                return False
+        return True
+    except (socket.gaierror, ValueError):
+        return False
 
 
 @router.post("/ingest/url", response_model=IngestJobStartResponse)
@@ -263,16 +318,18 @@ def ingest_url(req: LinkIngestRequest):
     url = req.url.strip()
     if not url.startswith(("http://", "https://")):
         raise HTTPException(400, "请输入以 http:// 或 https:// 开头的有效链接")
+    if not _is_safe_url(url):
+        raise HTTPException(400, "不允许访问内网或保留地址")
     return _start_url_ingest_job(url, kb_id=req.kb_id)
 
 
-def _query_pipeline(pipeline: RAGPipeline, question: str, session_id: str, top_k: int, api_key: str | None = None, style: str = "academic") -> dict:
+def _query_pipeline(pipeline: RAGPipeline, question: str, session_id: str, top_k: int, api_key: str | None = None, style: str = "academic", provider: str = "minimax", mode: str = "chat") -> dict:
     try:
-        return pipeline.query(question, session_id=session_id, top_k=top_k, api_key=api_key, style=style)
+        return pipeline.query(question, session_id=session_id, top_k=top_k, api_key=api_key, style=style, provider=provider, mode=mode)
     except Exception as e:
         raise HTTPException(
             502,
-            "MiniMax 回答生成失败。请检查 API key / 网络连接，或稍后重试。",
+            "回答生成失败。请检查 API key / 网络连接，或稍后重试。",
         ) from e
 
 
@@ -283,7 +340,7 @@ def query(request: Request, req: QueryRequest):
         # 自动开新 session
         sid = SessionStore(load_settings().sessions_db_path).create()
     api_key = req.api_key or request.headers.get("X-API-Key")
-    result = _query_pipeline(get_pipeline(), req.question, sid, req.top_k, api_key=api_key, style=req.style)
+    result = _query_pipeline(get_pipeline(), req.question, sid, req.top_k, api_key=api_key, style=req.style, provider=req.provider, mode=req.mode)
     return QueryResponse(
         answer=result["answer"],
         citations=result["citations"],
@@ -295,11 +352,16 @@ def query(request: Request, req: QueryRequest):
 def suggest_questions(request: Request, req: SuggestQuestionsRequest):
     """根据文档内容生成 3 个建议问题。"""
     s = load_settings()
-    api_key = req.api_key or request.headers.get("X-API-Key") or s.anthropic_api_key
-    base_url = s.anthropic_base_url
-    model = s.anthropic_model
+    api_key = req.api_key or request.headers.get("X-API-Key")
+    provider = req.provider or "minimax"
 
-    if not api_key or api_key == "REPLACE_WITH_YOUR_REAL_KEY":
+    if not api_key:
+        entry = s.PROVIDERS.get(provider)
+        if entry:
+            api_key = entry[1]
+    base_url, _, model = s.PROVIDERS.get(provider, s.PROVIDERS["minimax"])
+
+    if not api_key:
         raise HTTPException(400, "请先在设置中配置 API Key")
 
     preview = req.text[:3000]  # 限制长度
@@ -349,20 +411,61 @@ def list_files(kb_id: str | None = None):
     return DocumentListResponse(documents=_list_documents_for_kb(target_kb))
 
 
-@router.get("/documents/{filename}/chunks", response_model=DocumentChunksResponse)
-def get_document_chunks(filename: str):
-    """Return all chunks for a given uploaded filename, ordered by offset."""
-    settings = load_settings()
-    # 验证文件存在
-    target = settings.uploads_dir / filename
-    if not target.exists():
-        raise HTTPException(404, f"Document not found: {filename}")
+@router.get("/sources", response_model=DocumentListResponse)
+def list_sources(kb_id: str | None = None):
+    """List all sources (files + URLs) from Chroma metadata for a given kb_id."""
+    target_kb = kb_id if kb_id else "default"
+    if target_kb != "default" and _kb_store().get(target_kb) is None:
+        raise HTTPException(404, f"KB not found: {target_kb}")
 
-    # 从 Chroma 拉这个 source 的所有 chunk
+    vector = _vector_for_kb(target_kb)
+    try:
+        res = vector.collection.get(include=["metadatas"])
+    except Exception:
+        res = {"metadatas": []}
+
+    source_info: dict[str, dict] = {}
+    for meta in res.get("metadatas") or []:
+        if not meta:
+            continue
+        source = str(meta.get("source", ""))
+        if not source:
+            continue
+        if source not in source_info:
+            source_info[source] = {
+                "filename": source,
+                "chunks": 0,
+                "format": meta.get("format", "unknown"),
+                "platform": meta.get("platform", ""),
+                "source_url": meta.get("source_url", ""),
+            }
+        source_info[source]["chunks"] += 1
+
+    documents = [
+        DocumentInfo(
+            filename=info["filename"],
+            chunks=info["chunks"],
+            format=info.get("format", "unknown"),
+            platform=info.get("platform"),
+            source_url=info.get("source_url"),
+        )
+        for info in sorted(source_info.values(), key=lambda x: x["filename"])
+    ]
+    return DocumentListResponse(documents=documents)
+
+
+@router.get("/documents/{filename:path}/chunks", response_model=DocumentChunksResponse)
+def get_document_chunks(filename: str):
+    """Return all chunks for a given source (file or URL), ordered by offset."""
+    safe_filename = Path(filename).name  # 路径遍历防护
+    settings = load_settings()
+    target = settings.uploads_dir / safe_filename
+    if not target.exists():
+        pass  # URL source without disk file — query Chroma directly
     vector = VectorStore()
-    res = vector.collection.get(where={"source": filename}, include=["metadatas", "documents"])
+    res = vector.collection.get(where={"source": safe_filename}, include=["metadatas", "documents"])
     if not res["ids"]:
-        return DocumentChunksResponse(filename=filename, chunks=[])
+        return DocumentChunksResponse(filename=safe_filename, chunks=[])
 
     rows: list[ChunkInfo] = []
     for i, cid in enumerate(res["ids"]):
@@ -511,14 +614,15 @@ def get_kb_document_chunks(kb_id: str, filename: str):
     if _kb_store().get(kb_id) is None:
         raise HTTPException(404, f"KB not found: {kb_id}")
 
-    target = _uploads_dir_for_kb(kb_id) / filename
+    safe_filename = Path(filename).name  # 路径遍历防护
+    target = _uploads_dir_for_kb(kb_id) / safe_filename
     if not target.exists():
-        raise HTTPException(404, f"Document not found: {filename}")
+        raise HTTPException(404, f"Document not found: {safe_filename}")
 
     vector = _vector_for_kb(kb_id)
-    res = vector.collection.get(where={"source": filename}, include=["metadatas", "documents"])
+    res = vector.collection.get(where={"source": safe_filename}, include=["metadatas", "documents"])
     if not res["ids"]:
-        return DocumentChunksResponse(filename=filename, chunks=[])
+        return DocumentChunksResponse(filename=safe_filename, chunks=[])
 
     rows: list[ChunkInfo] = []
     for i, cid in enumerate(res["ids"]):
@@ -546,7 +650,7 @@ def query_kb(request: Request, kb_id: str, req: QueryRequest):
         sid = SessionStore(load_settings().sessions_db_path).create()
     _kb_store().bind_session(sid, [kb_id])
     api_key = req.api_key or request.headers.get("X-API-Key")
-    result = _query_pipeline(_pipeline_for_kb(kb_id), req.question, sid, req.top_k, api_key=api_key, style=req.style)
+    result = _query_pipeline(_pipeline_for_kb(kb_id), req.question, sid, req.top_k, api_key=api_key, style=req.style, provider=req.provider, mode=req.mode)
     return QueryResponse(
         answer=result["answer"],
         citations=result["citations"],

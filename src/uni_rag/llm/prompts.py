@@ -48,3 +48,19 @@ def build_user_prompt(question: str, chunks: list[dict]) -> str:
         context="\n".join(parts),
         question=question,
     )
+
+
+MODE_PROMPTS: dict[str, str] = {
+    "translate": "你是专业翻译。将<context>中的内容翻译成简洁的英文摘要，保留关键概念和定义。只输出翻译结果，不要额外解释。",
+    "flashcards": "你是学习卡片生成专家。根据<context>内容生成学习闪卡。每张闪卡有一个问题(question)和答案(answer)。输出JSON数组格式：[{\"question\":\"...\",\"answer\":\"...\"}]，至少5张。只输出JSON，不要其他内容。",
+    "quiz": "你是测验出题专家。根据<context>内容生成选择题。输出JSON数组格式：[{\"question\":\"...\",\"options\":[\"A:...\",\"B:...\",\"C:...\",\"D:...\"],\"answer\":\"A\"}]，至少3道。只输出JSON，不要其他内容。",
+    "graph": "你是知识图谱专家。根据<context>内容提取核心概念和关系。输出JSON格式：{\"nodes\":[{\"id\":\"概念名\",\"label\":\"简短描述\"}],\"edges\":[{\"from\":\"概念A\",\"to\":\"概念B\"}]}。至少5个节点。只输出JSON，不要其他内容。",
+}
+
+
+def get_mode_system_prompt(mode: str, style: str = "academic") -> str:
+    """Build system prompt for a specific generation mode."""
+    if mode not in MODE_PROMPTS:
+        return get_system_prompt(style)
+    base = MODE_PROMPTS[mode]
+    return f"{base}\n\n5. 用中文回答，除非问题明确要求英文。"

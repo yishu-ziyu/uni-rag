@@ -5,7 +5,7 @@ from pathlib import Path
 from uni_rag.ingest.pipeline import IngestPipeline
 from uni_rag.retrieve.retriever import HybridRetriever
 from uni_rag.llm.client import LLMClient
-from uni_rag.llm.prompts import get_system_prompt, build_user_prompt
+from uni_rag.llm.prompts import get_system_prompt, build_user_prompt, get_mode_system_prompt
 from uni_rag.cite.locator import locate_citation
 from uni_rag.cite.verifier import CitationVerifier
 from uni_rag.config import load_settings
@@ -42,8 +42,15 @@ class RAGPipeline:
         top_k: int = 5,
         style: str = "academic",
         api_key: str | None = None,
+        provider: str = "minimax",
+        mode: str = "chat",
     ) -> dict:
-        llm = self.llm.with_api_key(api_key) if api_key else self.llm
+        if api_key:
+            llm = self.llm.with_api_key(api_key)
+        elif provider and provider != "minimax":
+            llm = self.llm.with_provider(provider)
+        else:
+            llm = self.llm
 
         # 1. 检索（KB-scoped）
         chunks = self.retriever.retrieve(question, top_k=top_k)
@@ -63,7 +70,7 @@ class RAGPipeline:
             elif m["role"] == "assistant":
                 llm.add_assistant_message(m["content"])
 
-        system_prompt = get_system_prompt(style)
+        system_prompt = get_mode_system_prompt(mode, style)
 
         if chunks:
             user_prompt = build_user_prompt(question, chunks)
@@ -72,7 +79,7 @@ class RAGPipeline:
         llm.add_user_message(user_prompt)
         answer = llm.complete(system_prompt)
 
-        citations = self._extract_citations(answer, chunks)
+        citations = self._extract_citations(answer, chunks) if mode == "chat" else []
 
         if session_id:
             self.session_store.append(session_id, "user", question)

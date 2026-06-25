@@ -6,8 +6,10 @@ from uni_rag.rag.pipeline import RAGPipeline
 
 @pytest.fixture
 def pipeline(tmp_path, monkeypatch):
-    monkeypatch.setenv("UNI_RAG_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("UNI_RAG_DATA_DIR_PATH", str(tmp_path))
+    monkeypatch.setenv("UNI_RAG_LLM_API_KEY", "test-key")
+    import uni_rag.config as cfg
+    cfg._settings = None
     p = RAGPipeline()
     pdf = Path(__file__).resolve().parents[1] / "fixtures" / "sample.pdf"
     p.ingest_file(pdf)
@@ -51,8 +53,8 @@ def test_long_session_uses_only_recent_history(pipeline, monkeypatch):
 
     from uni_rag.config import load_settings
     settings = load_settings()
-    original = settings.uni_rag_max_session_messages
-    settings.uni_rag_max_session_messages = 6  # 临时调小方便测试
+    original = settings.max_session_messages
+    settings.max_session_messages = 6  # 临时调小方便测试
 
     try:
         sid = "long-session"
@@ -61,17 +63,19 @@ def test_long_session_uses_only_recent_history(pipeline, monkeypatch):
             pipeline.query(f"q{i}", session_id=sid)
 
         # 每次 query() 注入的 message 数（含本轮 user）必须 <= cap
-        assert all(n <= settings.uni_rag_max_session_messages for n in captured), (
+        assert all(n <= settings.max_session_messages for n in captured), (
             f"some calls exceeded cap: {captured}"
         )
     finally:
-        settings.uni_rag_max_session_messages = original
+        settings.max_session_messages = original
 
 
 def test_multi_kb_isolation(tmp_path, monkeypatch):
     """上传到 KB A 的内容，不应在 KB B 的检索中出现。"""
-    monkeypatch.setenv("UNI_RAG_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("UNI_RAG_DATA_DIR_PATH", str(tmp_path))
+    monkeypatch.setenv("UNI_RAG_LLM_API_KEY", "test-key")
+    import uni_rag.config as cfg
+    cfg._settings = None
 
     from uni_rag.store.kb import KBStore
     kb_store = KBStore(tmp_path / "kbs.db")

@@ -17,32 +17,29 @@ def _build_pipeline_with_mocked_deps():
 
 
 def test_query_default_style_is_academic():
-    """Backward compat: query() without style param should call get_system_prompt('academic')."""
+    """query() 不传 style 时应使用 'academic' 作为默认风格。"""
     p = _build_pipeline_with_mocked_deps()
     p.retriever.retrieve.return_value = []
     p.llm.complete.return_value = "mock answer"
 
-    with patch("uni_rag.rag.pipeline.get_system_prompt", return_value="学术系统提示") as mock_prompt:
+    with patch("uni_rag.rag.pipeline.get_mode_system_prompt", return_value="学术系统提示") as mock_prompt:
         p.query("测试问题")
 
-    # Currently query() uses SYSTEM_PROMPT directly, not get_system_prompt.
-    # This assertion will FAIL (mock never called) until the feature is implemented.
-    mock_prompt.assert_called_once_with("academic")
+    mock_prompt.assert_called_once_with("chat", "academic")
 
 
 def test_query_with_style_casual():
-    """query(style="casual") should accept a style param and forward it to get_system_prompt."""
+    """query(style='casual') 应将 casual 传给 get_mode_system_prompt。"""
     p = _build_pipeline_with_mocked_deps()
     p.retriever.retrieve.return_value = []
     p.llm.complete.return_value = "mock answer"
 
     casual_prompt = "你是一个友好的日常助手..."
     with patch(
-        "uni_rag.rag.pipeline.get_system_prompt", return_value=casual_prompt
+        "uni_rag.rag.pipeline.get_mode_system_prompt", return_value=casual_prompt
     ) as mock_prompt:
-        # Currently query() has no `style` param — TypeError expected until implemented.
         p.query("测试问题", style="casual")
 
-    mock_prompt.assert_called_once_with("casual")
+    mock_prompt.assert_called_once_with("chat", "casual")
     call_args = p.llm.complete.call_args
     assert call_args[0][0] == casual_prompt

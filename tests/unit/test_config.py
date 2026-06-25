@@ -5,9 +5,9 @@ from uni_rag.config import Settings, load_settings
 
 def test_load_settings_reads_minimax():
     settings = load_settings()
-    assert settings.anthropic_base_url.startswith("http")
-    assert settings.anthropic_api_key != ""
-    assert settings.anthropic_model != ""
+    assert settings.llm_base_url.startswith("http")
+    assert settings.llm_api_key != ""
+    assert settings.llm_model != ""
 
 
 def test_data_dir_defaults():
@@ -16,7 +16,7 @@ def test_data_dir_defaults():
 
 
 def test_data_dir_override(monkeypatch, tmp_path):
-    monkeypatch.setenv("UNI_RAG_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("UNI_RAG_DATA_DIR_PATH", str(tmp_path))
     from uni_rag import config as config_module
     config_module._settings = None
     settings = config_module.load_settings()
@@ -29,7 +29,7 @@ def test_max_session_messages_default():
     """默认 max_session_messages=20，避免长对话把 LLM context 打爆。"""
     from uni_rag.config import load_settings
     s = load_settings()
-    assert s.uni_rag_max_session_messages == 20
+    assert s.max_session_messages == 20
 
 
 def test_max_session_messages_override(monkeypatch):
@@ -38,7 +38,7 @@ def test_max_session_messages_override(monkeypatch):
     import uni_rag.config as cfg
     cfg._settings = None
     s = cfg.load_settings()
-    assert s.uni_rag_max_session_messages == 5
+    assert s.max_session_messages == 5
     cfg._settings = None
 
 
@@ -49,7 +49,7 @@ def test_kb_db_path_default():
 
 
 def test_kb_dir_creates_and_lives_under_data_dir(monkeypatch, tmp_path):
-    monkeypatch.setenv("UNI_RAG_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("UNI_RAG_DATA_DIR_PATH", str(tmp_path))
     import uni_rag.config as cfg
     cfg._settings = None
     s = cfg.load_settings()

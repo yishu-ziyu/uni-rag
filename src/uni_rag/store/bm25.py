@@ -1,7 +1,6 @@
 """BM25 keyword index, persisted to disk."""
 from __future__ import annotations
 import json
-import pickle
 from pathlib import Path
 from rank_bm25 import BM25Okapi
 import jieba  # 中文分词
@@ -21,22 +20,36 @@ class BM25Index:
         self._index = None  # 标记为脏
 
     def _build(self) -> None:
+        if not self.docs:
+            self._index = None
+            return
         tokenized = [list(jieba.cut_for_search(t)) for _, t, _ in self.docs]
         self._index = BM25Okapi(tokenized)
 
     def save(self) -> None:
+        if not self.docs:
+            return
         self._build()
-        with open(self.index_dir / "docs.pkl", "wb") as f:
-            pickle.dump(self.docs, f)
+        with open(self.index_dir / "docs.json", "w", encoding="utf-8") as f:
+            json.dump(self.docs, f, ensure_ascii=False)
 
     @classmethod
     def load(cls, index_dir: Path) -> "BM25Index":
         idx = cls(index_dir)
-        pkl = index_dir / "docs.pkl"
-        if pkl.exists():
-            with open(pkl, "rb") as f:
-                idx.docs = pickle.load(f)
+        # 支持旧版 .pkl 和新版 .json
+        json_path = index_dir / "docs.json"
+        pkl_path = index_dir / "docs.pkl"
+        if json_path.exists():
+            with open(json_path, "r", encoding="utf-8") as f:
+                idx.docs = [tuple(d) for d in json.load(f)]
             idx._build()
+        elif pkl_path.exists():
+            # 一次性迁移：读旧 pickle，写新 JSON，删旧文件
+            import pickle as _pkl
+            with open(pkl_path, "rb") as f:
+                idx.docs = _pkl.load(f)
+            idx.save()
+            pkl_path.unlink()
         return idx
 
     def query(self, text: str, top_k: int = 5) -> list[dict]:
