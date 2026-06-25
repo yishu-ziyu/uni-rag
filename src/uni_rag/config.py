@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     # Citation verification
     cite_similarity_threshold: float = 0.45
 
+    # LlamaCloud (LlamaParse) configuration
+    llama_cloud_api_key: str | None = None
+
 
 _settings: Settings | None = None
 

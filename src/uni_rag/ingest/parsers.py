@@ -18,6 +18,71 @@ class ParsedDocument:
 
 
 def _parse_pdf(path: Path) -> ParsedDocument:
+    from uni_rag.config import load_settings
+    settings = load_settings()
+
+    if settings.llama_cloud_api_key:
+        return _parse_pdf_llama(path, settings.llama_cloud_api_key)
+    return _parse_pdf_pymupdf(path)
+
+def _parse_pdf_llama(path: Path, api_key: str) -> ParsedDocument:
+    # LlamaParse is async, but we need to run it synchronously in our current pipeline
+    import asyncio
+    try:
+        from llama_cloud import AsyncLlamaCloud
+    except ImportError:
+        # Fallback to PyMuPDF if the library is not installed
+        import warnings
+        warnings.warn("llama_cloud package is not installed. Falling back to PyMuPDF. Run `pip install llama-cloud`.")
+        return _parse_pdf_pymupdf(path)
+
+    async def _run():
+        client = AsyncLlamaCloud(api_key=api_key)
+
+        # 1. Upload the file
+        file_obj = await client.files.create(file=str(path), purpose="parse")
+
+        # 2. Trigger parsing (use the "agentic" tier for best multi-modal extraction)
+        result = await client.parsing.parse(
+            file_id=file_obj.id,
+            tier="agentic",
+            expand=["markdown_full"],
+        )
+        return result.markdown_full
+
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    if loop.is_running():
+        # If we're already in an async context, we shouldn't block.
+        # But this function is synchronous, so we're forced to create a new thread or use nest_asyncio.
+        # For simplicity, we just run the event loop in a new thread if needed, or use a new loop.
+        import threading
+
+        result_container = {}
+        def run_in_thread():
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            result_container['markdown'] = new_loop.run_until_complete(_run())
+            new_loop.close()
+
+        t = threading.Thread(target=run_in_thread)
+        t.start()
+        t.join()
+        markdown = result_container['markdown']
+    else:
+        markdown = loop.run_until_complete(_run())
+
+    return ParsedDocument(
+        text=markdown,
+        format="pdf",
+        source_path=str(path),
+    )
+
+def _parse_pdf_pymupdf(path: Path) -> ParsedDocument:
     doc = fitz.open(str(path))
     pages = []
     full = []

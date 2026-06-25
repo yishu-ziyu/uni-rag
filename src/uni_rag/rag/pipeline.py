@@ -118,7 +118,13 @@ class RAGPipeline:
                 cited_text = ""
                 span = None
             claimed_text = answer[last_end:m.start()].strip()
+
+            # NOTE: For UX reasons, we allow citation verification to be skipped or
+            # we just mark it softly without blocking the main thread. Here we run it inline
+            # but it is very fast (local BGE-M3 model). If it becomes a bottleneck,
+            # we can make this async or run it in a background thread and push updates via WebSocket.
             similarity = verifier.verify(claimed_text, cited_text) if (claimed_text and cited_text) else 0.0
+
             out.append({
                 "chunk_id": cid,
                 "source": src,
