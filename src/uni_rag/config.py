@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     # LlamaCloud (LlamaParse)
     llama_cloud_api_key: str | None = None
 
+    # MinerU API (替代本地 LlamaParse)
+    mineru_api_token: str | None = None
+    mineru_api_base: str = "https://mineru.net/api/v4"
+
     # ── Provider registry ──
     stepfun_base_url: str = "https://api.stepfun.com/step_plan"
     stepfun_api_key: str | None = None

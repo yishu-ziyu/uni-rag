@@ -1,11 +1,16 @@
 """Document parsers for PDF, DOCX, Markdown."""
 from __future__ import annotations
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 import re
 import fitz  # PyMuPDF
 import docx
 from markdown_it import MarkdownIt
+
+from uni_rag.ingest.mineru_client import is_mineru_available, parse_file_via_api
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -18,83 +23,20 @@ class ParsedDocument:
 
 
 def _parse_pdf(path: Path) -> ParsedDocument:
-    from uni_rag.config import load_settings
-    settings = load_settings()
-
-    if settings.llama_cloud_api_key:
-        return _parse_pdf_llama(path, settings.llama_cloud_api_key)
+    """Try MinerU cloud API first, fall back to PyMuPDF on failure."""
+    if is_mineru_available():
+        try:
+            md_text = parse_file_via_api(path)
+            return ParsedDocument(
+                text=md_text,
+                format="pdf",
+                source_path=str(path),
+                pages=None,  # MinerU returns flat Markdown; page numbers lost
+            )
+        except Exception as e:
+            logger.warning("MinerU 解析失败，回退到 PyMuPDF: %s", e)
     return _parse_pdf_pymupdf(path)
 
-def _parse_pdf_llama(path: Path, api_key: str) -> ParsedDocument:
-    # LlamaParse is async, but we need to run it synchronously in our current pipeline
-    import asyncio
-    try:
-        from llama_cloud import AsyncLlamaCloud
-    except ImportError:
-        # Fallback to PyMuPDF if the library is not installed
-        import warnings
-        warnings.warn("llama_cloud package is not installed. Falling back to PyMuPDF. Run `pip install llama-cloud`.")
-        return _parse_pdf_pymupdf(path)
-
-    async def _run():
-        client = AsyncLlamaCloud(api_key=api_key)
-
-        # 1. Upload the file
-        file_obj = await client.files.create(file=str(path), purpose="parse")
-
-        # 2. Trigger parsing (use the "agentic" tier for best multi-modal extraction)
-        result = await client.parsing.parse(
-            file_id=file_obj.id,
-            tier="agentic",
-            version="latest",
-            expand=["markdown_full"],
-        )
-        # Parse returns a dictionary according to some versions or an object
-        markdown_full = ""
-        if hasattr(result, "markdown_full"):
-            markdown_full = result.markdown_full
-        elif isinstance(result, dict) and "markdown_full" in result:
-            markdown_full = result["markdown_full"]
-        else:
-            # wait for completion? Oh! llama_cloud AsyncParsingResource doesn't wait by default?
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.warning(f"Result does not contain markdown_full directly: {type(result)}. Falling back to waiting...")
-            pass # wait_for_completion below? Wait, parse does not block?
-
-        return markdown_full
-
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    if loop.is_running():
-        # If we're already in an async context, we shouldn't block.
-        # But this function is synchronous, so we're forced to create a new thread or use nest_asyncio.
-        # For simplicity, we just run the event loop in a new thread if needed, or use a new loop.
-        import threading
-
-        result_container = {}
-        def run_in_thread():
-            new_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(new_loop)
-            result_container['markdown'] = new_loop.run_until_complete(_run())
-            new_loop.close()
-
-        t = threading.Thread(target=run_in_thread)
-        t.start()
-        t.join()
-        markdown = result_container['markdown']
-    else:
-        markdown = loop.run_until_complete(_run())
-
-    return ParsedDocument(
-        text=markdown,
-        format="pdf",
-        source_path=str(path),
-    )
 
 def _parse_pdf_pymupdf(path: Path) -> ParsedDocument:
     doc = fitz.open(str(path))

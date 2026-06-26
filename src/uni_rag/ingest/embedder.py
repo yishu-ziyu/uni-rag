@@ -12,12 +12,18 @@ class Embedder:
         self.dim = self.model.get_sentence_embedding_dimension()
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        vecs = self.model.encode(
-            texts,
-            normalize_embeddings=True,
-            show_progress_bar=False,
-        )
-        return [v.tolist() for v in vecs]
+        # 分批处理，避免单次 encode 分配过大内存
+        BATCH_SIZE = 16
+        results: list[list[float]] = []
+        for i in range(0, len(texts), BATCH_SIZE):
+            batch = texts[i:i + BATCH_SIZE]
+            vecs = self.model.encode(
+                batch,
+                normalize_embeddings=True,
+                show_progress_bar=False,
+            )
+            results.extend(v.tolist() for v in vecs)
+        return results
 
 
 @lru_cache(maxsize=1)
