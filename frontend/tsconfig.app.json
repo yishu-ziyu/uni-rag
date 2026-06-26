@@ -21,5 +21,6 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/__mocks__", "src/test-setup.ts", "**/*.test.ts", "**/*.test.tsx"]
 }
