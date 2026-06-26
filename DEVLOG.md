@@ -1,5 +1,58 @@
 # DEVLOG
 
+## 2026-06-26 — MinerU 接入 + PDF 解析降级容灾
+
+把之前 LlamaParse 路线整体替换为 **MinerU v4 precision API + PyMuPDF 双引擎降级链**。
+
+**为什么换路线**：LlamaParse SDK 异步 API 与同步 Ingest Pipeline 桥接脆弱，且 API key 在生产环境不稳定；MinerU 提供精度更高的 REST API + CLI，国内访问稳定，对中文论文解析质量优于 PyMuPDF。
+
+**架构**：`_parse_pdf` 先尝试 `parse_file_via_api`（MinerU），任何异常静默降级到 `_parse_pdf_pymupdf`。仅 warning 日志，绝不阻断主流程。
+
+**附带修复**：MinerU 文本量是 PyMuPDF 的 ~1.7x（46k vs 27k chars），单次 encode 触发 OOM。embedder 加了 `BATCH_SIZE=16` 分批处理。
+
+**已知风险**：当前 MinerU JWT token 已过期（2024-10），fallback 到 PyMuPDF 工作正常；用户重新申请 token 写到 `.env` 即可激活云端路径。MinerU v4 返回扁平 Markdown 不带页码分段——若产品要保留"引用显示第 X 页"，需切回 v3 API 或本地解析。
+
+详细 devlog 见 `docs/DEVLOG_2026-06-26.md`。
+
+## 2026-06-26 — 前端组件化重构 + Vitest 测试基础设施
+
+### App.tsx 拆分为 11 个独立组件 (837行 → 426行 + 11 文件)
+
+**拆分前**：`App.tsx` 单文件 837 行，包含落地页、侧边栏、聊天面板、设置弹窗、发现面板、文档预览等全部逻辑。
+
+**拆分后**（12 个文件，合计 ~1241 行，含 App.tsx 426 行）：
+
+| 组件 | 行数 | 职责 |
+|------|------|------|
+| `Sidebar.tsx` | 249 | 左侧导航栏 + 来源列表 + URL 输入 |
+| `ChatPanel.tsx` | 233 | 底部聊天区 + Tab 切换 + 消息渲染 |
+| `App.tsx` | 426 | 状态中枢 + 路由（落地页/工作区） |
+| `LandingPage.tsx` | 24 | Matrix 落地页 |
+| `WelcomeGuide.tsx` | 40 | 首次使用三步引导 |
+| `WhyUniRag.tsx` | 56 | 能力概览（差异化卖点） |
+| `EmptyState.tsx` | 27 | 空状态操作面板 + 安全徽章 |
+| `SettingsModal.tsx` | 33 | 设置弹窗（Provider + API Key） |
+| `DiscoverOverlay.tsx` | 43 | 发现功能全屏浮层 |
+| `DiscoverPanel.tsx` | 30 | 发现面板内容 |
+| `DocumentPreview.tsx` | 35 | 中间栏文档查看器 |
+| `ui.tsx` | 42 | NavItem / FileItem / TabItem / ToolBtn 共享 UI 基元 |
+
+**拆分原则**：App.tsx 持有全部状态和 API 调用，通过 props 向下传递；组件只负责渲染和事件回传，不直接调用 API。
+
+### 测试基础设施搭建
+
+- 新增 `vitest` + `@testing-library/react` + `@testing-library/jest-dom` + `jsdom`
+- `vite.config.ts` 增加 `test` 配置（jsdom 环境 + globals + setupFiles）
+- `tsconfig.app.json` 排除测试文件（`**/*.test.ts(x)`、`src/__mocks__`、`src/test-setup.ts`）
+- 新增 `src/App.test.tsx`（基础渲染测试）
+- 新增 `src/test-setup.ts`（jest-dom matchers 注册）
+- 新增 `src/__mocks__/` 目录（mock 模块）
+
+### 下一步
+- 补充组件级单元测试（Sidebar / ChatPanel / LandingPage）
+- App.tsx 继续瘦身：状态管理可抽为 custom hooks
+- 落地页截图回归测试（`landing-page.png` / `welcome.png` / `workspace.png` 已作为视觉基准）
+
 ## 2026-06-25 — 基建补齐与体验打磨 (Ship Phase 4 验收交付)
 
 ### 基建文档 (Phase 1-4 欠债偿还)

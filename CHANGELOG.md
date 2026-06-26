@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.1.0 — 2026-06-26
+
+### 变更
+
+**PDF 解析后端重构：LlamaParse → MinerU v4 precision API**
+- 新增 `mineru_client.py`：v4 REST API 客户端（batch 上传 → PUT → 轮询 → 下载 zip → 提取 Markdown）
+- `parsers.py` 接入双引擎降级链：**MinerU 优先 + PyMuPDF 兜底**（任何异常仅 warning 级别降级，不阻断流程）
+- `embedder.py` 增加 16 texts/batch 分批 encode，解决 MinerU 文本量偏大触发的 OOM
+- `config.py` 新增 `mineru_api_token` / `mineru_api_base` 字段
+
+### 新增
+
+- 新增 `docs/DEVLOG_2026-06-26.md` 详细记录架构决策、降级链设计、已知风险
+
+### 已知限制
+
+- 当前 MinerU JWT token 已过期，需要用户去 https://mineru.net/apiManage/token 重新申请
+- MinerU v4 返回扁平 Markdown 不带页码分段，PDF 引用页码显示依赖 PyMuPDF 路径
+
 ## v1.0.0 — 2026-06-25
 
 首个正式版本。面向中文研究者的私有文档工作站。

@@ -30,3 +30,7 @@ data/kbs/
 
 # Frontend Chroma Data
 frontend/data/
+
+# Ship task artifacts (local-only)
+.ship/
+test-results/
