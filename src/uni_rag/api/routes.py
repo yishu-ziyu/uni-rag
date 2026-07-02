@@ -358,6 +358,7 @@ def create_memory_job(req: MemoryJobsRequest):
             verification_status=payload.verification_status,
             created_at=payload.created_at,
             saved_at=payload.saved_at,
+            contract_version=payload.contract_version,
         )
     except Exception as e:
         # Persist failure should not crash Reader; surface as failed job.

@@ -71,7 +71,8 @@ class MemoryStore:
             source_refs_json TEXT NOT NULL DEFAULT '[]',
             verification_status TEXT NOT NULL DEFAULT 'ungrounded',
             created_at TEXT NOT NULL,
-            saved_at TEXT NOT NULL
+            saved_at TEXT NOT NULL,
+            contract_version TEXT NOT NULL DEFAULT 'reader-unirag-memory-v1'
         )
 
     Phase-1 search: tokenize query → LIKE %kw% on (title || text), fallback
@@ -98,9 +99,23 @@ class MemoryStore:
                     source_refs_json TEXT NOT NULL DEFAULT '[]',
                     verification_status TEXT NOT NULL DEFAULT 'ungrounded',
                     created_at TEXT NOT NULL,
-                    saved_at TEXT NOT NULL
+                    saved_at TEXT NOT NULL,
+                    contract_version TEXT NOT NULL DEFAULT 'reader-unirag-memory-v1'
                 )
             """)
+            # Backfill column for databases created before contract_version
+            # existed (phase-1-contract-stabilization). SQLite cannot IF NOT
+            # EXISTS on ADD COLUMN, so introspect PRAGMA table_info first.
+            existing_cols = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(saved_memories)")
+            }
+            if "contract_version" not in existing_cols:
+                conn.execute(
+                    "ALTER TABLE saved_memories ADD COLUMN "
+                    "contract_version TEXT NOT NULL "
+                    "DEFAULT 'reader-unirag-memory-v1'"
+                )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_memories_artifact "
                 "ON saved_memories(artifact_id)"
@@ -129,6 +144,7 @@ class MemoryStore:
         verification_status: str = "ungrounded",
         created_at: str,
         saved_at: str,
+        contract_version: str = "reader-unirag-memory-v1",
     ) -> None:
         """Insert a new memory. Raises sqlite3.IntegrityError on duplicate memory_id."""
         source_refs_json = json.dumps(source_refs or [], ensure_ascii=False)
@@ -138,13 +154,15 @@ class MemoryStore:
                 INSERT INTO saved_memories (
                     memory_id, artifact_id, artifact_type, title, text,
                     document_id, document_name, source_refs_json,
-                    verification_status, created_at, saved_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    verification_status, created_at, saved_at,
+                    contract_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     memory_id, artifact_id, artifact_type, title, text,
                     document_id, document_name, source_refs_json,
                     verification_status, created_at, saved_at,
+                    contract_version,
                 ),
             )
 
@@ -154,7 +172,7 @@ class MemoryStore:
             row = conn.execute(
                 "SELECT memory_id, artifact_id, artifact_type, title, text, "
                 "document_id, document_name, source_refs_json, "
-                "verification_status, created_at, saved_at "
+                "verification_status, created_at, saved_at, contract_version "
                 "FROM saved_memories WHERE memory_id = ?",
                 (memory_id,),
             ).fetchone()
@@ -168,7 +186,7 @@ class MemoryStore:
             rows = conn.execute(
                 "SELECT memory_id, artifact_id, artifact_type, title, text, "
                 "document_id, document_name, source_refs_json, "
-                "verification_status, created_at, saved_at "
+                "verification_status, created_at, saved_at, contract_version "
                 "FROM saved_memories ORDER BY created_at DESC LIMIT ?",
                 (top_k,),
             ).fetchall()
@@ -220,7 +238,7 @@ class MemoryStore:
             rows = conn.execute(
                 f"SELECT memory_id, artifact_id, artifact_type, title, text, "
                 f"document_id, document_name, source_refs_json, "
-                f"verification_status, created_at, saved_at "
+                f"verification_status, created_at, saved_at, contract_version "
                 f"FROM saved_memories WHERE memory_id IN ({placeholders})",
                 matched_ids,
             ).fetchall()
@@ -250,4 +268,5 @@ class MemoryStore:
             "verification_status": row[8],
             "created_at": row[9],
             "saved_at": row[10],
+            "contract_version": row[11] if len(row) > 11 else "reader-unirag-memory-v1",
         }

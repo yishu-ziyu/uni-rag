@@ -160,6 +160,7 @@ class RAGPipeline:
                 "memory_id": m["memory_id"],
                 "title": m.get("title") or "",
                 "source_refs": m.get("source_refs") or [],
+                "contract_version": "reader-unirag-memory-v1",
             })
         return out
 

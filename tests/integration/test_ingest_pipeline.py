@@ -29,7 +29,10 @@ def test_ingest_emits_user_visible_progress(pipeline):
 
     assert result["chunks"] > 0
     steps = [event["step"] for event in events]
-    assert steps == ["saving", "parsing", "chunking", "embedding", "indexing", "done"]
+    assert steps[:5] == ["saving", "parsing", "chunking", "embedding", "indexing"]
+    assert steps[-1] == "done"
+    if result.get("visual_tiles", 0) > 0:
+        assert "visual-embedding" in steps
     assert events[0]["percent"] > 0
     assert events[-1]["percent"] == 100
     assert all(event["message"] for event in events)
