@@ -333,6 +333,7 @@ class TestSearch:
             "memory_id", "artifact_id", "artifact_type", "title", "text",
             "document_id", "document_name", "source_refs",
             "verification_status", "created_at", "saved_at",
+            "contract_version",
         }
         assert set(mem.keys()) == expected_keys
         assert isinstance(mem["source_refs"], list)

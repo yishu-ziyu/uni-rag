@@ -42,6 +42,10 @@ class Citation(BaseModel):
     memory_id: str | None = None
     title: str | None = None
     source_refs: list[dict[str, Any]] | None = None
+    # contract_version (phase-1-contract-stabilization): marks which
+    # Reader↔UniRAG memory contract this citation obeys. Optional so old
+    # UniRAG responses without it still parse; Reader defaults to v1.
+    contract_version: str | None = None
 
 
 class QueryResponse(BaseModel):
@@ -240,6 +244,12 @@ class MemoryPayload(BaseModel):
     text: str = ""
     created_at: int = Field(alias="createdAt")
     saved_at: int = Field(alias="savedAt")
+    # contract_version (phase-1-contract-stabilization): Reader sends
+    # contractVersion; we accept both alias and snake_case. Defaults to
+    # v1 so old Reader payloads (without the field) still parse.
+    contract_version: str = Field(
+        default="reader-unirag-memory-v1", alias="contractVersion"
+    )
 
 
 class MemoryJobsRequest(BaseModel):

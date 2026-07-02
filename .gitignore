@@ -6,6 +6,7 @@ __pycache__/
 data/uploads/*
 data/chroma/*
 data/bm25/*
+data/visual_tiles/*
 data/sessions.db
 data/kbs.db
 data/memory.db
