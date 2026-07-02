@@ -23,8 +23,8 @@ cp .env.example .env
 #   UNI_RAG_LLM_API_KEY=<你的 API key>
 #   UNI_RAG_LLM_PROVIDER=minimax   # 或 stepfun / local
 
-# 起 Web（默认 http://127.0.0.1:5001）
-uv run uni-rag serve
+# 起 Web（VibeReader 集成建议使用专用端口 http://127.0.0.1:8766）
+uv run uni-rag serve --port 8766
 
 # CLI
 uv run uni-rag ingest ./paper.pdf

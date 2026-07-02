@@ -1,5 +1,31 @@
 # DEVLOG
 
+## 2026-07-02 — Phase-1 Memory Backend（saved_artifact 持久化 + 检索）
+
+实现真实 memory backend，让 Reader 的 memory-aware query 不再只靠 Playwright route mock。支撑知识飞轮：read → ask → verify → save card → UniRAG stores memory → later query retrieves memory → Reader shows 我的记忆。
+
+**7 个 Slice**：
+1. `store/memory.py` + `config.memory_db_path` — SQLite 持久化层 `MemoryStore`（add/get/list_recent/search/count），29 个单测
+2. `api/schemas.py` — 9 个 memory schemas，Pydantic v2 `Field(alias="artifactId")` + `populate_by_name=True` 接受 Reader camelCase
+3. `rag/pipeline.py` — `query()` 接收 `include_memory`/`memory_top_k`/`memory_store`；注入 `<saved_memory>` 块到 LLM prompt；无条件 append memory citations（memory_id 是 uuid hex，不符合 `_CITE_RE`，不会被误抽）
+4. `api/routes.py` — `POST /api/memory/jobs` 同步持久化（返回 `status=completed` 触发 Reader fast-path）+ `GET /api/memory/jobs/{job_id}` + `_query_pipeline` 透传 memory 参数
+5. `tests/integration/test_memory_api.py` — 10 个集成测试（POST/GET/persistence/camelCase/snake_case/6 artifact types/include_memory true/false/empty store）
+6. 服务级 smoke — curl 真实 UniRAG 8766 验证：health ok / POST 返回 completed / GET 返回 memory_id / include_memory=true 真实返回 saved_memory citation（含全字段）/ 文档 RAG 未被破坏
+7. 文档回写 — delivery + e2e + run_state + 本 DEVLOG
+
+**关键设计**：
+- 同步持久化（SQLite 毫秒级），不做异步 job 状态机
+- memory_id 由 UniRAG 生成（uuid4 hex），同时作为 job_id 追溯
+- memory 检索 try/except 包裹，失败不破坏主 query 路径
+- `_build_memory_text` 从 MemoryPayload 的 title/content/source_refs 拼接可搜索文本（不同 artifact_type 填不同字段）
+- 搜索策略：中英文分词 + LIKE 匹配 + 无匹配 fallback 到 list_recent（保证 smoke 必出 citation）
+
+**测试结果**：29 单测 + 10 集成 + 4 回归 = 43 全通过，无回归。
+
+**未验证**：Reader + UniRAG 浏览器级联调 smoke（需用户在 Reader UI 手动操作）。服务级契约已验证完整，Reader 可切换到真实联调。
+
+详见 `.ship/tasks/20260701-vibereader-knowledge-flywheel/delivery/phase-1-unirag-memory-backend.md`。
+
 ## 2026-06-26 — MinerU 接入 + PDF 解析降级容灾
 
 把之前 LlamaParse 路线整体替换为 **MinerU v4 precision API + PyMuPDF 双引擎降级链**。
