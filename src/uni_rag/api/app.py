@@ -1,6 +1,7 @@
 """FastAPI app factory."""
 from __future__ import annotations
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pathlib import Path
@@ -13,6 +14,13 @@ from uni_rag.store.kb import KBStore
 def create_app() -> FastAPI:
     setup_logging()
     app = FastAPI(title="uni-rag", version="0.1.0")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"^http://(127\.0\.0\.1|localhost):\d+$",
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+    )
     KBStore(load_settings().kb_db_path).ensure_default()
     app.include_router(router)
 

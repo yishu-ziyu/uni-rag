@@ -44,6 +44,9 @@ class RAGPipeline:
         api_key: str | None = None,
         provider: str = "minimax",
         mode: str = "chat",
+        include_memory: bool = False,
+        memory_top_k: int = 3,
+        memory_store=None,
     ) -> dict:
         if api_key:
             llm = self.llm.with_api_key(api_key)
@@ -54,6 +57,15 @@ class RAGPipeline:
 
         # 1. 检索（KB-scoped）
         chunks = self.retriever.retrieve(question, top_k=top_k)
+
+        # 1b. 检索用户已保存的记忆（phase-1 memory backend）
+        memories: list[dict] = []
+        if include_memory and memory_store is not None:
+            try:
+                memories = memory_store.search(question, memory_top_k)
+            except Exception:
+                # Memory retrieval must never break the main query path.
+                memories = []
 
         # 2. 加载历史
         history = []
@@ -76,10 +88,16 @@ class RAGPipeline:
             user_prompt = build_user_prompt(question, chunks)
         else:
             user_prompt = question
+        if memories:
+            user_prompt = f"{user_prompt}\n\n{self._build_memory_block(memories)}"
         llm.add_user_message(user_prompt)
         answer = llm.complete(system_prompt)
 
         citations = self._extract_citations(answer, chunks) if mode == "chat" else []
+        # Memory citations are appended unconditionally so Reader can render
+        # 「我的记忆」 even when the LLM did not explicitly cite them.
+        if memories:
+            citations.extend(self._build_memory_citations(memories))
 
         if session_id:
             self.session_store.append(session_id, "user", question)
@@ -90,6 +108,60 @@ class RAGPipeline:
             "citations": citations,
             "chunks_used": chunks,
         }
+
+    @staticmethod
+    def _build_memory_block(memories: list[dict]) -> str:
+        """Format saved memories as a <saved_memory> context block for the LLM.
+
+        Memory entries are labeled clearly as user-saved notes/cards so the
+        LLM understands they are personal context, not raw document chunks.
+        We intentionally do NOT use the `[chunk_id]` citation syntax here
+        (memory_ids are hex uuids, which would not match `_CITE_RE` anyway),
+        so the LLM is free to reference memory content without forcing a
+        citation marker that `_extract_citations` cannot resolve.
+        """
+        parts = [
+            "<saved_memory>",
+            "以下是用户之前保存的笔记/卡片（用户已确认的个人记忆，可在回答中参考但无需用 [编号] 引用）：",
+            "",
+        ]
+        for m in memories:
+            title = m.get("title") or "(无标题)"
+            text = m.get("text") or ""
+            parts.append(f"## {title}")
+            parts.append(text)
+            parts.append("")
+        parts.append("---")
+        parts.append(f"(共 {len(memories)} 条记忆)")
+        parts.append("</saved_memory>")
+        return "\n".join(parts)
+
+    @staticmethod
+    def _build_memory_citations(memories: list[dict]) -> list[dict]:
+        """Convert saved-memory dicts to citation dicts for the API response.
+
+        Each citation carries the `source_type="saved_memory"` marker plus
+        the original Reader-side fields (artifact_id, artifact_type, memory_id,
+        title, source_refs) so Reader can detect it as 「我的记忆」 and jump
+        back to the saved Notes card.
+        """
+        out: list[dict] = []
+        for m in memories:
+            out.append({
+                "chunk_id": f"memory:{m['memory_id']}",
+                "source": "saved_memory",
+                "section": m.get("title") or "",
+                "page": 0,
+                "text": m.get("text") or "",
+                "span": None,
+                "source_type": "saved_memory",
+                "artifact_id": m.get("artifact_id") or "",
+                "artifact_type": m.get("artifact_type") or "",
+                "memory_id": m["memory_id"],
+                "title": m.get("title") or "",
+                "source_refs": m.get("source_refs") or [],
+            })
+        return out
 
     def _extract_citations(self, answer: str, chunks: list[dict]) -> list[dict]:
         chunk_map = {c["id"]: c for c in chunks}

@@ -85,6 +85,10 @@ class Settings(BaseSettings):
         return self.data_dir / "kbs.db"
 
     @property
+    def memory_db_path(self) -> Path:
+        return self.data_dir / "memory.db"
+
+    @property
     def kb_dir(self) -> Path:
         """Base dir for per-KB subdirectories (chroma/, bm25/, uploads/)."""
         p = self.data_dir / "kbs"

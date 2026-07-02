@@ -24,6 +24,8 @@ from uni_rag.api.schemas import (
     SessionKbBindRequest, SessionKbListResponse, DeleteResponse,
     SuggestQuestionsRequest, SuggestQuestionsResponse,
     ProvidersResponse, ProviderInfo,
+    MemoryJobsRequest, MemoryJobStartResponse,
+    MemoryJobStatusResponse, MemoryJobResult,
 )
 from uni_rag.export.md_exporter import render_markdown
 from uni_rag.ingest.link_extractors import LinkExtractionError
@@ -33,6 +35,29 @@ router = APIRouter(prefix="/api")
 _pipeline: RAGPipeline | None = None
 _ingest_jobs: dict[str, dict] = {}
 _ingest_jobs_lock = threading.Lock()
+
+# ── Memory backend (phase-1) ──
+# _memory_store is a process-wide MemoryStore singleton lazily created
+# from settings.memory_db_path. _memory_jobs tracks POST /api/memory/jobs
+# status so Reader can poll GET /api/memory/jobs/{job_id}. In practice
+# POST persists synchronously (Reader fast-paths on status=completed),
+# but we still register the job dict so the GET endpoint is consistent.
+_memory_store = None
+_memory_jobs: dict[str, dict] = {}
+_memory_jobs_lock = threading.Lock()
+
+
+def get_memory_store():
+    """Lazy-load the MemoryStore singleton.
+
+    Kept lazy so unit tests pointing UNI_RAG_DATA_DIR_PATH at a tmp dir
+    don't trigger SQLite handle creation at import time.
+    """
+    global _memory_store
+    if _memory_store is None:
+        from uni_rag.store.memory import MemoryStore
+        _memory_store = MemoryStore(load_settings().memory_db_path)
+    return _memory_store
 
 
 def get_pipeline() -> RAGPipeline:
@@ -251,6 +276,131 @@ def get_ingest_job(job_id: str):
     return IngestJobStatusResponse(**job)
 
 
+# ── Memory backend (phase-1) ──
+# POST /api/memory/jobs persists a Reader saved_artifact synchronously.
+# Reader expects a fast-path: if POST returns status="completed", it
+# skips polling and treats the memory as ready. We honor that by doing
+# the SQLite write inline and returning completed immediately.
+# GET /api/memory/jobs/{job_id} is still provided for compatibility
+# (e.g. if Reader ever switches to async ingestion).
+def _set_memory_job(job_id: str, **updates) -> None:
+    with _memory_jobs_lock:
+        current = _memory_jobs.get(job_id, {})
+        _memory_jobs[job_id] = {"job_id": job_id, **current, **updates}
+
+
+def _get_memory_job(job_id: str) -> dict | None:
+    with _memory_jobs_lock:
+        job = _memory_jobs.get(job_id)
+        return dict(job) if job else None
+
+
+def _build_memory_text(payload) -> str:
+    """Derive a flat searchable text blob from a MemoryPayload.
+
+    Reader populates different fields depending on artifact_type
+    (answer/card/note/highlight/summary/qa). We concatenate anything
+    that could carry semantic content so MemoryStore.search can match.
+    """
+    parts: list[str] = []
+    if payload.title:
+        parts.append(payload.title)
+    c = payload.content
+    if c.question:
+        parts.append(c.question)
+    if c.answer:
+        parts.append(c.answer)
+    if c.summary:
+        parts.append(c.summary)
+    if c.explanation:
+        parts.append(c.explanation)
+    if c.body:
+        parts.append(c.body)
+    if c.user_note:
+        parts.append(c.user_note)
+    if c.key_points:
+        parts.extend(c.key_points)
+    if payload.text:
+        parts.append(payload.text)
+    # Source refs may carry helpful `text` excerpts
+    for ref in payload.source_refs:
+        if ref.text:
+            parts.append(ref.text)
+    return "\n".join(p for p in parts if p)
+
+
+@router.post("/memory/jobs", response_model=MemoryJobStartResponse)
+def create_memory_job(req: MemoryJobsRequest):
+    """Persist a VibeReader saved_artifact as a memory entry.
+
+    Synchronous: returns status="completed" so Reader can fast-path.
+    Generates memory_id (uuid4 hex) and stores it in the job result so
+    Reader can later reference it (e.g. for citation jumps).
+    """
+    payload = req.memory
+    memory_id = uuid.uuid4().hex
+    text = _build_memory_text(payload)
+    document_id = payload.document.id if payload.document else ""
+    document_name = payload.document.name if payload.document else ""
+    # source_refs as plain dicts for storage
+    source_refs_dicts = [r.model_dump(by_alias=True, exclude_none=True) for r in payload.source_refs]
+
+    try:
+        get_memory_store().add(
+            memory_id=memory_id,
+            artifact_id=payload.artifact_id,
+            artifact_type=payload.artifact_type,
+            title=payload.title,
+            text=text,
+            document_id=document_id,
+            document_name=document_name,
+            source_refs=source_refs_dicts,
+            verification_status=payload.verification_status,
+            created_at=payload.created_at,
+            saved_at=payload.saved_at,
+        )
+    except Exception as e:
+        # Persist failure should not crash Reader; surface as failed job.
+        job_id = uuid.uuid4().hex
+        _set_memory_job(
+            job_id,
+            status="failed",
+            step="failed",
+            percent=100,
+            message="记忆持久化失败",
+            error=str(e),
+            result=None,
+        )
+        # Still return 200 with status=failed so Reader's HTTP layer
+        # doesn't 5xx; Reader checks `status` field, not HTTP code.
+        return MemoryJobStartResponse(job_id=job_id, status_url=f"/api/memory/jobs/{job_id}", status="failed")
+
+    job_id = memory_id  # use memory_id as job_id for traceability
+    result = MemoryJobResult(memory_id=memory_id, chunks=1)
+    _set_memory_job(
+        job_id,
+        status="completed",
+        step="done",
+        percent=100,
+        message="记忆已保存",
+        result=result.model_dump(),
+        error=None,
+    )
+    return MemoryJobStartResponse(
+        job_id=job_id,
+        status_url=f"/api/memory/jobs/{job_id}",
+        status="completed",
+    )
+
+
+@router.get("/memory/jobs/{job_id}", response_model=MemoryJobStatusResponse)
+def get_memory_job_status(job_id: str):
+    job = _get_memory_job(job_id)
+    if job is None:
+        raise HTTPException(404, f"Memory job not found: {job_id}")
+    return MemoryJobStatusResponse(**job)
+
+
 @router.post("/ingest", response_model=IngestResponse)
 async def ingest(file: UploadFile = File(...)):
     if not file.filename:
@@ -323,9 +473,21 @@ def ingest_url(req: LinkIngestRequest):
     return _start_url_ingest_job(url, kb_id=req.kb_id)
 
 
-def _query_pipeline(pipeline: RAGPipeline, question: str, session_id: str, top_k: int, api_key: str | None = None, style: str = "academic", provider: str = "minimax", mode: str = "chat") -> dict:
+def _query_pipeline(pipeline: RAGPipeline, question: str, session_id: str, top_k: int, api_key: str | None = None, style: str = "academic", provider: str = "minimax", mode: str = "chat", include_memory: bool = False, memory_top_k: int = 3) -> dict:
     try:
-        return pipeline.query(question, session_id=session_id, top_k=top_k, api_key=api_key, style=style, provider=provider, mode=mode)
+        memory_store = get_memory_store() if include_memory else None
+        return pipeline.query(
+            question,
+            session_id=session_id,
+            top_k=top_k,
+            api_key=api_key,
+            style=style,
+            provider=provider,
+            mode=mode,
+            include_memory=include_memory,
+            memory_top_k=memory_top_k,
+            memory_store=memory_store,
+        )
     except Exception as e:
         raise HTTPException(
             502,
@@ -340,7 +502,7 @@ def query(request: Request, req: QueryRequest):
         # 自动开新 session
         sid = SessionStore(load_settings().sessions_db_path).create()
     api_key = req.api_key or request.headers.get("X-API-Key")
-    result = _query_pipeline(get_pipeline(), req.question, sid, req.top_k, api_key=api_key, style=req.style, provider=req.provider, mode=req.mode)
+    result = _query_pipeline(get_pipeline(), req.question, sid, req.top_k, api_key=api_key, style=req.style, provider=req.provider, mode=req.mode, include_memory=req.include_memory, memory_top_k=req.memory_top_k)
     return QueryResponse(
         answer=result["answer"],
         citations=result["citations"],
@@ -650,7 +812,7 @@ def query_kb(request: Request, kb_id: str, req: QueryRequest):
         sid = SessionStore(load_settings().sessions_db_path).create()
     _kb_store().bind_session(sid, [kb_id])
     api_key = req.api_key or request.headers.get("X-API-Key")
-    result = _query_pipeline(_pipeline_for_kb(kb_id), req.question, sid, req.top_k, api_key=api_key, style=req.style, provider=req.provider, mode=req.mode)
+    result = _query_pipeline(_pipeline_for_kb(kb_id), req.question, sid, req.top_k, api_key=api_key, style=req.style, provider=req.provider, mode=req.mode, include_memory=req.include_memory, memory_top_k=req.memory_top_k)
     return QueryResponse(
         answer=result["answer"],
         citations=result["citations"],

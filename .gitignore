@@ -8,6 +8,7 @@ data/chroma/*
 data/bm25/*
 data/sessions.db
 data/kbs.db
+data/memory.db
 !data/.gitkeep
 !data/uploads/.gitkeep
 !data/chroma/.gitkeep
