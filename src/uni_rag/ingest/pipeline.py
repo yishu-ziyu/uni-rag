@@ -1,17 +1,22 @@
-"""Ingest pipeline: parse → chunk → embed → store. Supports per-KB isolation."""
+"""Ingest pipeline: parse -> (text chunk -> embed) + (visual tile -> embed) -> store."""
 from __future__ import annotations
 import hashlib
+import logging
 from pathlib import Path
 from collections.abc import Callable
 from uni_rag.ingest.parsers import parse_document
 from uni_rag.ingest.chunker import chunk_document
 from uni_rag.ingest.embedder import get_embedder
+from uni_rag.ingest.visual_embedder import get_visual_embedder
 from uni_rag.ingest.quality import ChunkQualityFilter
 from uni_rag.ingest.url_parser import parse_url_result
 from uni_rag.ingest import link_extractors
 from uni_rag.store.vector import VectorStore
 from uni_rag.store.bm25 import BM25Index
 from uni_rag.config import load_settings
+
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_upload_name(name: str) -> str:
@@ -48,6 +53,21 @@ class IngestPipeline:
             self.bm25 = BM25Index(bm25_dir)
             self.uploads_dir = uploads_dir
 
+        # Visual RAG store: separate collection for image embeddings
+        self.visual_embedder = get_visual_embedder()
+        self.visual_tiles_dir = load_settings().visual_tiles_dir
+        self.visual_tiles_dir.mkdir(parents=True, exist_ok=True)
+
+        if kb_id is None:
+            self.visual_vector = VectorStore(collection_name="visual_chunks")
+        else:
+            visual_chroma = (load_settings().data_dir / "kbs" / kb_id / "chroma_visual")
+            visual_chroma.mkdir(parents=True, exist_ok=True)
+            self.visual_vector = VectorStore(
+                data_dir=visual_chroma,
+                collection_name=f"kb_{kb_id}_visual",
+            )
+
     def _source_id(self, path: Path) -> str:
         h = hashlib.sha256()
         h.update(str(path.resolve()).encode())
@@ -70,8 +90,11 @@ class IngestPipeline:
         dest = self.uploads_dir / save_name
         dest.write_bytes(path.read_bytes())
 
+        # Visual tiles are stored per-document under visual_tiles/<source_id>/
+        visual_tiles_subdir = self.visual_tiles_dir / self._source_id(dest)
+
         emit("parsing", 20, "正在解析文档内容")
-        doc = parse_document(dest)
+        doc = parse_document(dest, visual_tiles_dir=visual_tiles_subdir)
         source_id = self._source_id(dest)
 
         emit("chunking", 40, "正在按章节和段落切分")
@@ -86,6 +109,7 @@ class IngestPipeline:
                 emit("filtering", 55, f"质量过滤：保留 {len(kept)} / 丢弃 {len(dropped)}")
             chunks = kept
 
+        # ── Text channel ──
         texts = [c.text for c in chunks]
         emit("embedding", 60, f"正在生成 {len(chunks)} 个文本块的向量", chunks=len(chunks))
         vecs = self.embedder.embed(texts)
@@ -114,9 +138,39 @@ class IngestPipeline:
                 metadata={"source": save_name, "section": c.section_title or "", "page": c.page_number or 0},
             )
         self.bm25.save()
-        emit("done", 100, "入库完成", chunks=len(chunks), source_id=source_id)
 
-        return {"source_id": source_id, "chunks": len(chunks), "format": doc.format}
+        # ── Visual channel ──
+        visual_count = 0
+        if doc.visual_tiles and self.visual_embedder and self.visual_embedder.available:
+            emit("visual-embedding", 75, f"正在对 {len(doc.visual_tiles)} 张页面截图做视觉嵌入")
+            try:
+                visual_vecs = self.visual_embedder.embed_images(doc.visual_tiles)
+                for page_path, v in zip(doc.visual_tiles, visual_vecs):
+                    self.visual_vector.add(
+                        source_id=source_id,
+                        chunk_id=f"{source_id}:visual:{page_path.stem}",
+                        embedding=v,
+                        metadata={
+                            "source": save_name,
+                            "format": doc.format,
+                            "page": int(page_path.stem.split("_")[-1]),
+                            "tile_path": str(page_path),
+                        },
+                        document=None,
+                    )
+                visual_count = len(doc.visual_tiles)
+            except Exception as e:
+                logger.warning("Visual embedding failed for %s: %s", source_id, e)
+
+        emit("done", 100, "入库完成",
+             chunks=len(chunks), visual_tiles=visual_count, source_id=source_id)
+
+        return {
+            "source_id": source_id,
+            "chunks": len(chunks),
+            "visual_tiles": visual_count,
+            "format": doc.format,
+        }
 
     def ingest_url(
         self,
@@ -124,8 +178,7 @@ class IngestPipeline:
         original_name: str | None = None,
         progress: Callable[[dict], None] | None = None,
     ) -> dict:
-        """从链接提取内容并入库。复用现有 chunk/embed/index 流程。"""
-
+        """From URL extraction and index. Reuses existing chunk/embed/index flow."""
         def emit(step: str, percent: int, message: str, **extra) -> None:
             if progress:
                 progress({"step": step, "percent": percent, "message": message, **extra})
@@ -203,3 +256,20 @@ class IngestPipeline:
         """Test seam: vector-only search within this KB."""
         vec = self.embedder.embed([query])[0]
         return self.vector.query(vec, top_k=top_k)
+
+    def visual_search(self, query: str, top_k: int = 5) -> list[dict]:
+        """Visual RAG search: embed the text query with the visual embedder,
+        then query the visual vector collection for visually-similar page tiles.
+
+        Falls back gracefully if visual embedder is unavailable.
+        """
+        if not self.visual_embedder or not self.visual_embedder.available:
+            return []
+        try:
+            vec = self.visual_embedder.embed_text(query) if isinstance(query, str) else query
+            if not isinstance(vec, list):
+                return []
+            return self.visual_vector.query(vec, top_k=top_k)
+        except Exception as e:
+            logger.warning("Visual search failed: %s", e)
+            return []

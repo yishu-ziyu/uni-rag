@@ -95,6 +95,13 @@ class Settings(BaseSettings):
         p.mkdir(parents=True, exist_ok=True)
         return p
 
+    @property
+    def visual_tiles_dir(self) -> Path:
+        """Base dir for PDF page screenshot tiles used by visual RAG."""
+        p = self.data_dir / "visual_tiles"
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
 
 _settings: Settings | None = None
 
