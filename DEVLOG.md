@@ -1,5 +1,62 @@
 # DEVLOG
 
+## 2026-07-02 — Visual RAG Channel（PDF 页面截图 + 视觉嵌入入库）
+
+在现有文本 RAG 流水线旁新增一条并行视觉通道：PDF 页面渲染为 PNG tile，用 CLIP 视觉嵌入模型向量化，存储到独立的 Chroma collection。不替换现有 BGE-M3 文本通道，两条检索结果可由下游融合。
+
+**4 个改动文件 + 1 个新增测试文件**：
+
+1. `src/uni_rag/ingest/visual_embedder.py`（新建） — VisualEmbedder 类，包装 sentence-transformers CLIP 模型（clip-ViT-B-32，512-dim）。单图 `embed_image` + 批量 `embed_images`（batch=8）。`get_visual_embedder()` 是 lru_cache singleton，sentence-transformers 不可用时返回 None，通道静默跳过。
+
+2. `src/uni_rag/ingest/parsers.py` — `ParsedDocument` dataclass 新增 `visual_tiles: list[Path] | None` 字段。`_parse_pdf_pymupdf` 接受 `visual_tiles_dir` 参数，逐页 `page.get_pixmap(dpi=144)` 渲染 PNG。`parse_document` 和 `_parse_pdf` 签名向后兼容（`visual_tiles_dir` 为可选参数）。
+
+3. `src/uni_rag/ingest/pipeline.py` — `IngestPipeline.__init__` 新增 `visual_embedder`、`visual_tiles_dir`、`visual_vector`（独立 Chroma collection）。`ingest_file` 在文本通道完成后追加视觉通道：解析出的 `visual_tiles` -> `visual_embedder.embed_images` -> `visual_vector.add`（chunk_id 格式 `{source_id}:visual:{page_stem}`）。MinerU 路径不产出 tiles（已知边界）。新增 `visual_search(query, top_k)` 方法供下游检索调用。`ingest_url` 不变（网页暂不截图）。
+
+4. `src/uni_rag/config.py` — 新增 `visual_tiles_dir` property（`data_dir / "visual_tiles"`）。
+
+5. `tests/unit/test_visual_embedder.py`（新建） — 11 个单测：可用性检测、singleton caching、模型选择、embed_image 返回 list[float]、normalize_embeddings=True、路径转 str、batch 切分、单次调用、no progress bar、unavailable 降级。
+
+6. `tests/unit/test_parsers.py` — 更新 4 个已有测试适配新签名 + 新增 2 个视觉 tiles 测试。
+
+**设计决策**：
+- 视觉和文本走独立 Chroma collection，不混在一个索引里。原因是 embedding 维度不同（512 vs 1024），融合策略在 Phase 2 再做。
+- 截图 DPI 选 144（A4 约 1200x1700px），在质量和存储之间取平衡。更高 DPI 会增加嵌入耗时和存储。
+- 只对 PDF 做截图（PyMuPDF 路径），DOCX 和网页留到 Phase 4。
+- 视觉嵌入模型用 `clip-ViT-B-32`（512-dim），而非 PixelRAG 的 Qwen3-VL-Embedding。原因：sentence-transformers 已作为项目依赖，不需要额外安装；CLIP 是经过大规模图文对训练的多模态基础模型，中文页面也有合理表现。如果后续效果不够，再升级到 `clip-ViT-L-14`（768-dim）或替换为 Qwen2-VL embedding 变体。
+
+**测试结果**：169 passed / 0 failed / 2 skipped。全量回归通过。
+
+**Codex 复核修正**：首次复跑 visual/ingest 相关测试时发现 `test_ingest_emits_user_visible_progress` 失败，且代码存在 `visual_search()` 调用不存在的 `VisualEmbedder.embed()`、`self.visual_embedder` 为 `None` 时访问 `.available`、`logger` 未定义等异常路径问题。已补 `embed_text()`、visual_search 单测、None guard、logger、`data/visual_tiles/*` ignore，并更新进度测试以接受可选 `visual-embedding` 阶段。复核后：visual/ingest 23 passed，合并关键集 84 passed。
+
+**未完成**：
+- `visual_search` 目前是独立方法，还没接入 RAG pipeline 的 query 路径（Phase 2）。
+- Reader 界面还没显示视觉检索结果的截图（Phase 3）。
+- 视觉 tiles 的清理/过期策略未设计。
+- DOCX/网页截图未实现。
+- 模型选择未做实际效果对比（当前基于工程判断，非 benchmark）。
+
+**接入知识库**：本项目属于知识库 Topics「视觉 RAG」和「Agent 智能搜索」的工程落地层，已在知识库 Wiki 层记录为 PixelRAG 项目的 UniRAG 接入方案。
+
+## 2026-07-02 — Phase-1 Contract Stabilization（reader-unirag-memory-v1）
+
+把 Reader ↔ UniRAG 的 memory/citation 边界固化为可版本化、可回放的 contract，版本号 `reader-unirag-memory-v1`。
+
+**改动**：
+- `api/schemas.py`：`Citation` + `MemoryPayload` 加 `contract_version: str = "reader-unirag-memory-v1"`，Pydantic v2 `Field(alias="contractVersion")` + `populate_by_name=True` 接受 Reader camelCase。
+- `rag/pipeline.py`：`_build_memory_citations` 硬编码 contract_version 写入每条 saved_memory citation。
+- `store/memory.py`：SQLite CREATE TABLE 加 `contract_version` 列 + `ALTER TABLE` 迁移旧库 + `add()` 加参数 + SELECT 加列 + `_row_to_dict` 加键（修复 D4 contract test 暴露的持久化断链）。
+- `api/routes.py`：`create_memory_job` 透传 `payload.contract_version` 给 store。
+- `tests/integration/test_contract_v1.py`：新增 11 项 contract tests，引用共享 fixtures `contracts/reader-unirag-memory/v1/`。
+- `tests/unit/test_memory_store.py`：`test_returns_full_dict_shape` 的 expected_keys 加 contract_version。
+
+**共享 fixtures**：`contracts/reader-unirag-memory/v1/`（7 fixture + README），被 UniRAG + Reader 两侧 contract tests 双向引用。
+
+**测试**：聚焦回归 61 passed（test_memory_store 29 + test_memory_api 10 + test_contract_v1 11 + test_query_pipeline 8 + test_config 3）。全量未跑（sentence_transformers 模型加载耗时）。
+
+**E2E**：服务级 curl + 浏览器级 Playwright MCP 对真实 UniRAG 8766 + Reader 3217 验证 contract_version 端到端贯通。saved_memory citations 全带 `contract_version: "reader-unirag-memory-v1"` + 全字段。失败路径（unknown job 404 / include_memory=false / 空 store）覆盖。
+
+**未完成**：Reader Chat UI 完整飞轮（Slate.js 自动化 + MiniMax API Key 阻塞），contract 端到端已用浏览器 fetch + 单测组合验证。详见 `.ship/tasks/20260701-vibereader-knowledge-flywheel/delivery/phase-1-contract-stabilization.md`。
+
 ## 2026-07-02 — Phase-1 Memory Backend（saved_artifact 持久化 + 检索）
 
 实现真实 memory backend，让 Reader 的 memory-aware query 不再只靠 Playwright route mock。支撑知识飞轮：read → ask → verify → save card → UniRAG stores memory → later query retrieves memory → Reader shows 我的记忆。

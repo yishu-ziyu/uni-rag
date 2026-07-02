@@ -20,9 +20,13 @@ class ParsedDocument:
     format: str  # 'pdf' | 'docx' | 'md'
     source_path: str
     pages: list[tuple[int, str]] | None = None  # [(page_no, text)] for pdf
+    visual_tiles: list[Path] | None = None  # screenshot PNG paths for visual RAG
 
 
-def _parse_pdf(path: Path) -> ParsedDocument:
+def _parse_pdf(
+    path: Path,
+    visual_tiles_dir: Path | None = None,
+) -> ParsedDocument:
     """Try MinerU cloud API first, fall back to PyMuPDF on failure."""
     if is_mineru_available():
         try:
@@ -32,26 +36,43 @@ def _parse_pdf(path: Path) -> ParsedDocument:
                 format="pdf",
                 source_path=str(path),
                 pages=None,  # MinerU returns flat Markdown; page numbers lost
+                visual_tiles=None,  # MinerU path does not produce tiles
             )
         except Exception as e:
             logger.warning("MinerU 解析失败，回退到 PyMuPDF: %s", e)
-    return _parse_pdf_pymupdf(path)
+    return _parse_pdf_pymupdf(path, visual_tiles_dir=visual_tiles_dir)
 
 
-def _parse_pdf_pymupdf(path: Path) -> ParsedDocument:
+def _parse_pdf_pymupdf(
+    path: Path,
+    visual_tiles_dir: Path | None = None,
+) -> ParsedDocument:
     doc = fitz.open(str(path))
     pages = []
     full = []
+    visual_tiles: list[Path] = []
+
+    if visual_tiles_dir is not None:
+        visual_tiles_dir.mkdir(parents=True, exist_ok=True)
+
     for i, page in enumerate(doc):
         text = page.get_text("text")
         pages.append((i + 1, text))
         full.append(text)
+
+        if visual_tiles_dir is not None:
+            pix = page.get_pixmap(dpi=144)
+            tile_path = visual_tiles_dir / f"page_{i + 1:04d}.png"
+            pix.save(str(tile_path))
+            visual_tiles.append(tile_path)
+
     doc.close()
     return ParsedDocument(
         text="\n\n".join(full),
         format="pdf",
         source_path=str(path),
         pages=pages,
+        visual_tiles=visual_tiles or None,
     )
 
 
@@ -109,14 +130,23 @@ def _parse_md(path: Path) -> ParsedDocument:
     )
 
 
-def parse_document(path: str | Path) -> ParsedDocument:
-    """Dispatch to the right parser by file extension."""
+def parse_document(
+    path: str | Path,
+    visual_tiles_dir: Path | None = None,
+) -> ParsedDocument:
+    """Dispatch to the right parser by file extension.
+
+    Args:
+        path: File path to parse.
+        visual_tiles_dir: If set and format is PDF, render each page as a
+            PNG tile into this directory for visual RAG indexing.
+    """
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"Not found: {p}")
     ext = p.suffix.lower()
     if ext == ".pdf":
-        return _parse_pdf(p)
+        return _parse_pdf(p, visual_tiles_dir=visual_tiles_dir)
     if ext == ".docx":
         return _parse_docx(p)
     if ext in (".md", ".markdown"):
