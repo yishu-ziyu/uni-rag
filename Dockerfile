@@ -45,7 +45,7 @@ EXPOSE 8766
 
 # Data lives in /data (mount a volume here for persistence)
 ENV UNI_RAG_DATA_DIR=/data \
-    UNI_RAG_HOST=0.0.0.0 \
+    UNI_RAG_HOST=127.0.0.1 \
     UNI_RAG_PORT=8766
 
 CMD ["uv", "run", "uvicorn", "uni_rag.api.app:create_app", \

@@ -5,7 +5,7 @@ services:
     container_name: uni-rag
     restart: unless-stopped
     ports:
-      - "8766:8766"
+      - "127.0.0.1:8766:8766"
     volumes:
       - uni-rag-data:/data
     env_file:
