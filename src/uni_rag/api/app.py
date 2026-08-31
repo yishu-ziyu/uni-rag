@@ -1,5 +1,6 @@
 """FastAPI app factory."""
 from __future__ import annotations
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -11,8 +12,19 @@ from uni_rag.logging_setup import setup_logging
 from uni_rag.store.kb import KBStore
 
 
+logger = logging.getLogger(__name__)
+
+
 def create_app() -> FastAPI:
     setup_logging()
+    settings = load_settings()
+    # 启动时打印最终解析出的数据目录，便于发现 env 名称错位
+    # （如误设 UNI_RAG_DATA_DIR 而实际读取 UNI_RAG_DATA_DIR_PATH）。
+    logger.info(
+        "uni-rag 数据目录 data_dir=%s（UNI_RAG_DATA_DIR_PATH=%r）",
+        settings.data_dir,
+        settings.data_dir_path,
+    )
     app = FastAPI(title="uni-rag", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,
@@ -21,7 +33,7 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
-    KBStore(load_settings().kb_db_path).ensure_default()
+    KBStore(settings.kb_db_path).ensure_default()
     app.include_router(router)
 
     # 静态前端

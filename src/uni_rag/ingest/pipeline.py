@@ -74,6 +74,21 @@ class IngestPipeline:
         h.update(path.read_bytes()[:1024 * 1024])  # 前 1MB
         return h.hexdigest()[:16]
 
+    @staticmethod
+    def _save_parsed_sidecar(source_id: str, text: str) -> None:
+        """把解析后的全文保存为 sidecar：<parsed_dir>/<source_id>.md。
+
+        PDF 等二进制原文无法直接 read_text 定位 citation span，
+        query 侧优先读这份解析文本（见 rag/pipeline.resolve_source_text）。
+        """
+        if not text:
+            return
+        try:
+            sidecar = load_settings().parsed_dir / f"{source_id}.md"
+            sidecar.write_text(text, encoding="utf-8")
+        except OSError as e:
+            logger.warning("保存解析文本 sidecar 失败 %s: %s", source_id, e)
+
     def ingest_file(
         self,
         path: Path,
@@ -96,6 +111,7 @@ class IngestPipeline:
         emit("parsing", 20, "正在解析文档内容")
         doc = parse_document(dest, visual_tiles_dir=visual_tiles_subdir)
         source_id = self._source_id(dest)
+        self._save_parsed_sidecar(source_id, doc.text)
 
         emit("chunking", 40, "正在按章节和段落切分")
         chunks = chunk_document(doc.text, source_id=source_id, pages=getattr(doc, 'pages', None))
@@ -189,6 +205,7 @@ class IngestPipeline:
         emit("parsing", 25, "正在解析提取的内容")
         doc = parse_url_result(extraction)
         source_id = self._source_id_from_url(url, doc.text)
+        self._save_parsed_sidecar(source_id, doc.text)
 
         emit("chunking", 40, "正在按章节和段落切分")
         chunks = chunk_document(doc.text, source_id=source_id, pages=getattr(doc, 'pages', None))

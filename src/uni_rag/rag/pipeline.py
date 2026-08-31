@@ -14,6 +14,28 @@ from uni_rag.config import load_settings
 _CITE_RE = re.compile(r"\[([a-zA-Z0-9_]+:\d+)\]")
 
 
+def resolve_source_text(
+    parsed_dir: Path,
+    uploads_dir: Path,
+    chunk_id: str,
+    source_name: str,
+) -> str | None:
+    """返回用于定位 citation span 的全文文本。
+
+    优先读 ingest 时保存的解析文本 sidecar（<parsed_dir>/<source_id>.md）：
+    uploads 里的 PDF 是二进制，直接 read_text 会得到乱码导致定位失败。
+    sidecar 不存在（旧数据/解析为空）时回退读 uploads 原文，保持旧行为。
+    """
+    source_id = chunk_id.rsplit(":", 1)[0] if ":" in chunk_id else chunk_id
+    sidecar = parsed_dir / f"{source_id}.md"
+    if sidecar.exists():
+        return sidecar.read_text(encoding="utf-8")
+    src_path = uploads_dir / source_name
+    if src_path.exists():
+        return src_path.read_text(errors="ignore")
+    return None
+
+
 class RAGPipeline:
     """kb_id=None = legacy v0.2 mode (single global KB)."""
 
@@ -185,10 +207,12 @@ class RAGPipeline:
                 section = meta.get("section", "")
                 page = meta.get("page", 0)
                 cited_text = chunk.get("document") or ""
-                src_path = self.uploads_dir / src
+                # 优先读解析文本 sidecar，回退 uploads 原文（见 resolve_source_text）
+                full = resolve_source_text(
+                    settings.parsed_dir, self.uploads_dir, cid, src
+                )
                 span = None
-                if src_path.exists():
-                    full = src_path.read_text(errors="ignore")
+                if full is not None:
                     _, span = locate_citation(full, cited_text)
             else:
                 meta = {}

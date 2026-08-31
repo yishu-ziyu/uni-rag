@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -28,11 +29,21 @@ from uni_rag.api.app import create_app
 # ── fixtures 加载辅助 ──────────────────────────────────────────────────
 
 def _contracts_dir() -> Path:
-    """从本测试文件向上查找 `contracts/reader-unirag-memory/v1/` 目录。
+    """定位 `reader-unirag-memory/v1/` 契约 fixtures 目录。
 
-    不硬编码父级索引，遍历 here.parent 及其所有父级，命中即返回。
+    优先级：
+      1. 环境变量 `VIBEREADER_CONTRACTS_DIR`——子仓独立 clone、目录结构
+         与 workbench 主仓不一致时，可显式指向 fixtures 目录。
+      2. 回退：从本测试文件向上遍历父目录，依次探测
+         `packages/shared-contracts/reader-unirag-memory/v1` 与
+         `contracts/reader-unirag-memory/v1`，不硬编码父级索引。
     """
     here = Path(__file__).resolve()
+    env_dir = os.environ.get("VIBEREADER_CONTRACTS_DIR")
+    if env_dir:
+        candidate = Path(env_dir).expanduser().resolve()
+        if candidate.is_dir():
+            return candidate
     for parent in [here.parent, *here.parents]:
         candidates = [
             parent / "packages" / "shared-contracts" / "reader-unirag-memory" / "v1",
@@ -41,7 +52,10 @@ def _contracts_dir() -> Path:
         for candidate in candidates:
             if candidate.is_dir():
                 return candidate
-    raise RuntimeError("contracts/reader-unirag-memory/v1 not found from " + str(here))
+    msg = "contracts/reader-unirag-memory/v1 not found from " + str(here)
+    if env_dir:
+        msg += f"；注意 VIBEREADER_CONTRACTS_DIR={env_dir} 指向的目录无效"
+    raise RuntimeError(msg)
 
 
 def _load_fixture(name: str) -> dict:

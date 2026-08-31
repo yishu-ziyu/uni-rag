@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     # 数据目录（用 _path 后缀避免和 @property data_dir 冲突）
     data_dir_path: str = "./data"
 
+    # 解析全文 sidecar 目录（ingest 时写入 <parsed_dir>/<source_id>.md）。
+    # 留空则跟随 data_dir/parsed，保证 Docker 单卷部署下路径一致。
+    parsed_dir_path: str = ""
+
     # Session 长度上限
     max_session_messages: int = 20
 
@@ -61,6 +65,16 @@ class Settings(BaseSettings):
     @property
     def uploads_dir(self) -> Path:
         p = self.data_dir / "uploads"
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    @property
+    def parsed_dir(self) -> Path:
+        """解析全文 sidecar 目录：<data_dir>/parsed/<source_id>.md。"""
+        if self.parsed_dir_path:
+            p = Path(self.parsed_dir_path).expanduser().resolve()
+        else:
+            p = self.data_dir / "parsed"
         p.mkdir(parents=True, exist_ok=True)
         return p
 

@@ -44,9 +44,12 @@ COPY src/uni_rag/web/ /app/web/
 EXPOSE 8766
 
 # Data lives in /data (mount a volume here for persistence)
-ENV UNI_RAG_DATA_DIR=/data \
-    UNI_RAG_HOST=127.0.0.1 \
-    UNI_RAG_PORT=8766
+# 注意：config.py 的 Settings 字段是 data_dir_path，按 pydantic 命名规则
+# 对应环境变量 UNI_RAG_DATA_DIR_PATH（不能写成 UNI_RAG_DATA_DIR，会被
+# extra="ignore" 静默吞掉导致数据落到镜像层 ./data）。
+# host/port 无对应 Settings 字段，由下方 CMD 显式指定；对外只暴露 loopback
+# 由 docker-compose 的 127.0.0.1:8766:8766 端口映射保证（容器内须绑 0.0.0.0）。
+ENV UNI_RAG_DATA_DIR_PATH=/data
 
 CMD ["uv", "run", "uvicorn", "uni_rag.api.app:create_app", \
      "--factory", "--host", "0.0.0.0", "--port", "8766"]
